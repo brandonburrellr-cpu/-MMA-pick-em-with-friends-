@@ -68,40 +68,6 @@ function messageStyles(text) {
 }
 
 function FighterCard({ name, espnUrl, active, disabled, onPick }) {
-  const [imageUrl, setImageUrl] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadImage() {
-      if (!espnUrl || espnUrl === '#') {
-        setImageUrl(null);
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `/api/espn-image?url=${encodeURIComponent(espnUrl)}`
-        );
-        const data = await response.json();
-
-        if (!cancelled) {
-          setImageUrl(data?.image || null);
-        }
-      } catch {
-        if (!cancelled) {
-          setImageUrl(null);
-        }
-      }
-    }
-
-    loadImage();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [espnUrl]);
-
   return (
     <div
       style={{
@@ -112,51 +78,33 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
         opacity: disabled ? 0.7 : 1,
       }}
     >
-      <a
-        href={espnUrl && espnUrl !== '#' ? espnUrl : undefined}
-        target="_blank"
-        rel="noreferrer"
+      <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: 10,
-          textDecoration: 'none',
-          color: '#fff',
+          padding: 14,
           borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}
       >
-        <div
+        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 10 }}>{name}</div>
+
+        <a
+          href={espnUrl && espnUrl !== '#' ? espnUrl : undefined}
+          target="_blank"
+          rel="noreferrer"
           style={{
-            width: 56,
-            height: 56,
-            borderRadius: 999,
-            overflow: 'hidden',
-            flexShrink: 0,
+            display: 'inline-block',
             background: '#0b1022',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            color: '#fff',
+            textDecoration: 'none',
+            padding: '8px 12px',
+            borderRadius: 10,
+            border: '1px solid #2a3158',
+            fontSize: 13,
+            fontWeight: 700,
           }}
         >
-          {imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={name}
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                display: 'block',
-              }}
-            />
-          ) : (
-            <span style={{ fontSize: 12, color: '#b7bfdc' }}>IMG</span>
-          )}
-        </div>
-
-        <div style={{ fontWeight: 700, lineHeight: 1.15 }}>{name}</div>
-      </a>
+          View ESPN Profile
+        </a>
+      </div>
 
       <button
         onClick={onPick}
@@ -167,7 +115,7 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
           color: '#fff',
           border: 'none',
           padding: '12px 10px',
-          fontWeight: 700,
+          fontWeight: 800,
           cursor: disabled ? 'not-allowed' : 'pointer',
         }}
       >
@@ -407,8 +355,7 @@ export default function HomePage() {
             </h1>
 
             <p style={{ color: '#b7bfdc', margin: 0, maxWidth: 650 }}>
-              Fighter pictures load automatically from ESPN profile pages. Click a picture to open
-              ESPN, then click the pick button to choose that fighter.
+              Click each fighter&apos;s ESPN button to view their profile, then pick who you think wins.
             </p>
           </section>
 
@@ -433,8 +380,8 @@ export default function HomePage() {
                 marginBottom: 12,
               }}
             >
-              Add ESPN fighter profile links in <code>lib/events.js</code>. The site handles the
-              images for you.
+              Use ESPN fighter profile links in <code>lib/events.js</code>. Your site stays clean,
+              and users can jump straight to each fighter&apos;s ESPN page.
             </div>
 
             {message && (
