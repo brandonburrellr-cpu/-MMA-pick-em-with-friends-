@@ -41,48 +41,92 @@ function scoreSubmission(submission, results) {
   return score;
 }
 
+function messageStyles(text) {
+  const lower = String(text || '').toLowerCase();
+
+  if (lower.includes('saved')) {
+    return {
+      background: 'rgba(16, 185, 129, 0.18)',
+      border: '1px solid rgba(52, 211, 153, 0.5)',
+      color: '#d1fae5',
+    };
+  }
+
+  if (lower.includes('locked')) {
+    return {
+      background: 'rgba(245, 158, 11, 0.18)',
+      border: '1px solid rgba(251, 191, 36, 0.45)',
+      color: '#fde68a',
+    };
+  }
+
+  return {
+    background: 'rgba(239, 68, 68, 0.16)',
+    border: '1px solid rgba(248, 113, 113, 0.4)',
+    color: '#fecaca',
+  };
+}
+
 function FighterCard({ name, espnUrl, active, disabled, onPick }) {
   return (
     <div
       style={{
-        background: active ? '#89142e' : '#151a32',
-        border: active ? '1px solid #e11d48' : '1px solid #2a3158',
-        borderRadius: 14,
+        background: active
+          ? 'linear-gradient(135deg, rgba(236,72,153,0.35), rgba(168,85,247,0.28))'
+          : 'linear-gradient(135deg, rgba(30,41,59,0.88), rgba(17,24,39,0.88))',
+        border: active
+          ? '1px solid rgba(244,114,182,0.8)'
+          : '1px solid rgba(99,102,241,0.25)',
+        borderRadius: 18,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
+        boxShadow: active
+          ? '0 0 0 1px rgba(244,114,182,0.25), 0 10px 30px rgba(236,72,153,0.18)'
+          : '0 10px 30px rgba(0,0,0,0.25)',
+        opacity: disabled ? 0.75 : 1,
+        backdropFilter: 'blur(12px)',
       }}
     >
-      {/* CLICKABLE ESPN SECTION */}
       <a
         href={espnUrl && espnUrl !== '#' ? espnUrl : undefined}
         target="_blank"
         rel="noreferrer"
         style={{
-          padding: 14,
+          padding: 16,
           textDecoration: 'none',
           color: '#fff',
           display: 'block',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
-          cursor: espnUrl ? 'pointer' : 'default',
         }}
       >
-        <div style={{ fontWeight: 800, fontSize: 16 }}>
+        <div
+          style={{
+            fontWeight: 900,
+            fontSize: 17,
+            lineHeight: 1.2,
+            marginBottom: 8,
+          }}
+        >
           {name}
         </div>
 
         <div
           style={{
-            marginTop: 8,
+            display: 'inline-block',
             fontSize: 12,
-            color: '#b7bfdc',
+            fontWeight: 800,
+            color: '#bfdbfe',
+            background: 'rgba(59,130,246,0.14)',
+            border: '1px solid rgba(96,165,250,0.25)',
+            padding: '6px 10px',
+            borderRadius: 999,
           }}
         >
           View ESPN Profile →
         </div>
       </a>
 
-      {/* PICK BUTTON */}
       <button
         onClick={onPick}
         disabled={disabled}
@@ -91,8 +135,9 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
           background: 'transparent',
           color: '#fff',
           border: 'none',
-          padding: '12px 10px',
-          fontWeight: 800,
+          padding: '14px 12px',
+          fontWeight: 900,
+          fontSize: 14,
           cursor: disabled ? 'not-allowed' : 'pointer',
         }}
       >
@@ -114,6 +159,7 @@ export default function HomePage() {
   const [submissions, setSubmissions] = useState([]);
   const [results, setResults] = useState({});
   const [message, setMessage] = useState('');
+  const [expandedPlayer, setExpandedPlayer] = useState(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -129,6 +175,7 @@ export default function HomePage() {
   }, [selectedEventId]);
 
   const fights = normalizeFights(selectedEvent);
+  const locked = selectedEvent?.date ? new Date() >= new Date(selectedEvent.date) : false;
 
   async function loadData() {
     if (!supabase) return;
@@ -143,106 +190,628 @@ export default function HomePage() {
       .select('*')
       .eq('event_id', selectedEventId);
 
-    const r = {};
-    res?.forEach((row) => (r[row.fight_key] = row.winner));
+    const nextResults = {};
+    (res || []).forEach((row) => {
+      nextResults[row.fight_key] = row.winner;
+    });
 
     setSubmissions(subs || []);
-    setResults(r);
+    setResults(nextResults);
   }
 
   useEffect(() => {
     loadData();
+    setExpandedPlayer(null);
   }, [selectedEventId]);
 
+  useEffect(() => {
+    if (!supabase || !selectedEventId) return;
+
+    const submissionsChannel = supabase
+      .channel(`submissions-${selectedEventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'submissions',
+          filter: `event_id=eq.${selectedEventId}`,
+        },
+        () => loadData()
+      )
+      .subscribe();
+
+    const resultsChannel = supabase
+      .channel(`results-${selectedEventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'results',
+          filter: `event_id=eq.${selectedEventId}`,
+        },
+        () => loadData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(submissionsChannel);
+      supabase.removeChannel(resultsChannel);
+    };
+  }, [supabase, selectedEventId]);
+
   function chooseWinner(fightKey, fighter) {
+    if (locked || !fighter) return;
     setPicks((prev) => ({ ...prev, [fightKey]: fighter }));
   }
 
   async function submitPicks() {
-    if (!playerName) return setMessage('Enter your name');
+    const cleanName = playerName.trim();
 
-    await supabase.from('submissions').upsert({
-      event_id: selectedEventId,
-      player_name: playerName,
-      picks,
-    });
+    if (!cleanName) {
+      setMessage('Enter your name first.');
+      return;
+    }
 
-    setMessage('Saved!');
+    if (locked) {
+      setMessage('Picks are locked for this card.');
+      return;
+    }
+
+    if (!supabase) {
+      setMessage('Supabase client not available.');
+      return;
+    }
+
+    const complete = fights.every((fight) => fight.left && fight.right && picks[fight.key]);
+    if (!complete) {
+      setMessage('Pick a winner for every fight.');
+      return;
+    }
+
+    const { error } = await supabase.from('submissions').upsert(
+      {
+        event_id: selectedEventId,
+        player_name: cleanName,
+        picks,
+      },
+      { onConflict: 'event_id,player_name' }
+    );
+
+    if (error) {
+      setMessage(`Could not save picks: ${error.message}`);
+      return;
+    }
+
+    setMessage('Picks saved.');
     loadData();
   }
 
   async function saveResult(fightKey, winner) {
-    await supabase.from('results').upsert({
-      event_id: selectedEventId,
-      fight_key: fightKey,
-      winner,
-    });
+    if (!supabase) {
+      setMessage('Supabase client not available.');
+      return;
+    }
 
+    const { error } = await supabase.from('results').upsert(
+      {
+        event_id: selectedEventId,
+        fight_key: fightKey,
+        winner,
+      },
+      { onConflict: 'event_id,fight_key' }
+    );
+
+    if (error) {
+      setMessage(`Could not save result: ${error.message}`);
+      return;
+    }
+
+    setMessage('Result saved.');
     loadData();
   }
 
-  const leaderboard = [...submissions]
-    .map((s) => ({
-      ...s,
-      score: scoreSubmission(s, results),
-    }))
-    .sort((a, b) => b.score - a.score);
+  const leaderboard = useMemo(() => {
+    return [...submissions]
+      .map((submission) => ({
+        ...submission,
+        score: scoreSubmission(submission, results),
+      }))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return String(a.player_name).localeCompare(String(b.player_name));
+      });
+  }, [submissions, results]);
 
   return (
-    <main style={{ padding: 30, color: 'white' }}>
-      <h1>MMA Pick’Em</h1>
+    <main
+      style={{
+        minHeight: '100vh',
+        color: '#fff',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        backgroundImage:
+          "linear-gradient(rgba(2,6,23,0.82), rgba(3,7,18,0.9)), url('/background.jpg')",
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+      }}
+    >
+      <div
+        style={{
+          minHeight: '100vh',
+          backdropFilter: 'blur(2px)',
+          padding: '32px 20px',
+        }}
+      >
+        <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '2fr 1.1fr',
+              gap: 18,
+              marginBottom: 28,
+            }}
+          >
+            <section
+              style={{
+                background: 'linear-gradient(135deg, rgba(30,41,59,0.7), rgba(17,24,39,0.72))',
+                border: '1px solid rgba(99,102,241,0.22)',
+                borderRadius: 26,
+                padding: 28,
+                boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
+                backdropFilter: 'blur(14px)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'inline-block',
+                  background: 'linear-gradient(90deg, #f43f5e, #ec4899)',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 900,
+                  padding: '7px 12px',
+                  borderRadius: 999,
+                  marginBottom: 16,
+                  letterSpacing: 0.4,
+                }}
+              >
+                MMA PICK&apos;EM
+              </div>
 
-      <input
-        placeholder="Your name"
-        value={playerName}
-        onChange={(e) => setPlayerName(e.target.value)}
-        style={{ marginBottom: 20 }}
-      />
+              <h1
+                style={{
+                  fontSize: 30,
+                  lineHeight: 1.08,
+                  margin: 0,
+                  marginBottom: 14,
+                  fontWeight: 900,
+                }}
+              >
+                Pick the winners. Beat your friends.
+              </h1>
 
-      {fights.map((fight) => (
-        <div key={fight.key} style={{ marginBottom: 20 }}>
-          <h3>{fight.left} vs {fight.right}</h3>
+              <p style={{ color: '#dbeafe', margin: 0, maxWidth: 700, fontSize: 16 }}>
+                A brighter, bolder fight-night board. Check each fighter’s ESPN profile, make your
+                picks, and track the leaderboard live as results come in.
+              </p>
+            </section>
 
-          <div style={{ display: 'flex', gap: 10 }}>
-            <FighterCard
-              name={fight.left}
-              espnUrl={fight.leftEspn}
-              active={picks[fight.key] === fight.left}
-              onPick={() => chooseWinner(fight.key, fight.left)}
-            />
-            <FighterCard
-              name={fight.right}
-              espnUrl={fight.rightEspn}
-              active={picks[fight.key] === fight.right}
-              onPick={() => chooseWinner(fight.key, fight.right)}
-            />
+            <section
+              style={{
+                background: 'linear-gradient(135deg, rgba(30,41,59,0.72), rgba(17,24,39,0.74))',
+                border: '1px solid rgba(168,85,247,0.25)',
+                borderRadius: 26,
+                padding: 24,
+                boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
+                backdropFilter: 'blur(14px)',
+              }}
+            >
+              <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>How it works</div>
+              <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16, fontWeight: 900 }}>
+                Live and colorful
+              </h2>
+
+              <div
+                style={{
+                  background: 'rgba(251,146,60,0.14)',
+                  border: '1px solid rgba(251,146,60,0.3)',
+                  color: '#fdba74',
+                  padding: 14,
+                  borderRadius: 14,
+                  marginBottom: 12,
+                  fontWeight: 700,
+                }}
+              >
+                Use ESPN links for fighter research, then lock in your picks below.
+              </div>
+
+              {message && (
+                <div
+                  style={{
+                    ...messageStyles(message),
+                    padding: 14,
+                    borderRadius: 14,
+                    wordBreak: 'break-word',
+                    fontWeight: 700,
+                  }}
+                >
+                  {message}
+                </div>
+              )}
+            </section>
+          </div>
+
+          <h2 style={{ marginBottom: 14, fontSize: 18, fontWeight: 900 }}>Upcoming events</h2>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+              gap: 14,
+              marginBottom: 20,
+            }}
+          >
+            {EVENTS.map((event, index) => {
+              const eventId = getEventId(event, index);
+              const active = eventId === selectedEventId;
+
+              return (
+                <button
+                  key={eventId}
+                  onClick={() => {
+                    setSelectedEventId(eventId);
+                    setPicks({});
+                    setMessage('');
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    background: active
+                      ? 'linear-gradient(135deg, rgba(236,72,153,0.28), rgba(99,102,241,0.22))'
+                      : 'linear-gradient(135deg, rgba(30,41,59,0.74), rgba(17,24,39,0.74))',
+                    border: active
+                      ? '1px solid rgba(244,114,182,0.85)'
+                      : '1px solid rgba(99,102,241,0.18)',
+                    borderRadius: 20,
+                    padding: 16,
+                    color: '#fff',
+                    cursor: 'pointer',
+                    boxShadow: active
+                      ? '0 10px 30px rgba(236,72,153,0.18)'
+                      : '0 10px 30px rgba(0,0,0,0.2)',
+                    backdropFilter: 'blur(10px)',
+                  }}
+                >
+                  <div style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 10 }}>
+                    {formatDate(event?.date)}
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 900, lineHeight: 1.15, marginBottom: 8 }}>
+                    {event?.name || 'Fight Card'}
+                  </div>
+                  <div style={{ color: '#bfdbfe', fontSize: 14, marginBottom: 10 }}>
+                    {event?.location || ''}
+                  </div>
+                  <div style={{ fontSize: 14, color: '#f9a8d4', fontWeight: 800 }}>
+                    {event?.fights?.length || 0} fights
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1.35fr 1fr',
+              gap: 18,
+              alignItems: 'start',
+            }}
+          >
+            <section
+              style={{
+                background: 'linear-gradient(135deg, rgba(15,23,42,0.75), rgba(17,24,39,0.72))',
+                border: '1px solid rgba(99,102,241,0.2)',
+                borderRadius: 26,
+                padding: 20,
+                boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
+                backdropFilter: 'blur(14px)',
+              }}
+            >
+              <h2 style={{ marginTop: 0, marginBottom: 6, fontSize: 22, fontWeight: 900 }}>
+                {selectedEvent?.name || 'Fight Card'}
+              </h2>
+              <div style={{ color: '#bfdbfe', marginBottom: 14 }}>
+                {[selectedEvent?.location, formatDate(selectedEvent?.date)].filter(Boolean).join(' · ')}
+              </div>
+
+              <div
+                style={{
+                  background: locked
+                    ? 'rgba(245,158,11,0.18)'
+                    : 'rgba(34,197,94,0.16)',
+                  color: locked ? '#fde68a' : '#bbf7d0',
+                  border: locked
+                    ? '1px solid rgba(251,191,36,0.4)'
+                    : '1px solid rgba(74,222,128,0.35)',
+                  borderRadius: 14,
+                  padding: 13,
+                  marginBottom: 14,
+                  fontWeight: 800,
+                }}
+              >
+                {locked ? 'Picks are locked for this card.' : 'Picks are open for this card.'}
+              </div>
+
+              <input
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                placeholder="Enter your name"
+                style={{
+                  width: '100%',
+                  background: 'rgba(2,6,23,0.72)',
+                  color: '#fff',
+                  border: '1px solid rgba(99,102,241,0.25)',
+                  borderRadius: 12,
+                  padding: '13px 14px',
+                  marginBottom: 16,
+                  outline: 'none',
+                  fontSize: 15,
+                }}
+              />
+
+              {fights.map((fight, index) => {
+                const selectedWinner = picks[fight.key];
+
+                return (
+                  <div
+                    key={fight.key}
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(15,23,42,0.86), rgba(17,24,39,0.86))',
+                      border: '1px solid rgba(99,102,241,0.15)',
+                      borderRadius: 18,
+                      padding: 14,
+                      marginBottom: 14,
+                    }}
+                  >
+                    <div style={{ color: '#c4b5fd', marginBottom: 6, fontWeight: 700 }}>
+                      Fight {index + 1}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 12 }}>
+                      {fight.left} vs. {fight.right}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <FighterCard
+                        name={fight.left}
+                        espnUrl={fight.leftEspn}
+                        active={selectedWinner === fight.left}
+                        disabled={locked}
+                        onPick={() => chooseWinner(fight.key, fight.left)}
+                      />
+                      <FighterCard
+                        name={fight.right}
+                        espnUrl={fight.rightEspn}
+                        active={selectedWinner === fight.right}
+                        disabled={locked}
+                        onPick={() => chooseWinner(fight.key, fight.right)}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              <button
+                onClick={submitPicks}
+                disabled={locked}
+                style={{
+                  width: '100%',
+                  background: locked
+                    ? 'linear-gradient(90deg, #475569, #334155)'
+                    : 'linear-gradient(90deg, #f43f5e, #ec4899, #8b5cf6)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 14,
+                  padding: '15px 16px',
+                  fontWeight: 900,
+                  fontSize: 15,
+                  cursor: locked ? 'not-allowed' : 'pointer',
+                  boxShadow: locked ? 'none' : '0 12px 30px rgba(236,72,153,0.3)',
+                }}
+              >
+                {locked ? 'Picks locked' : 'Save my picks'}
+              </button>
+            </section>
+
+            <div style={{ display: 'grid', gap: 18 }}>
+              <section
+                style={{
+                  background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))',
+                  border: '1px solid rgba(99,102,241,0.2)',
+                  borderRadius: 26,
+                  padding: 18,
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
+                  backdropFilter: 'blur(14px)',
+                }}
+              >
+                <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Leaderboard</h2>
+
+                {leaderboard.length === 0 ? (
+                  <div style={{ color: '#cbd5e1' }}>No picks saved yet.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {leaderboard.map((entry, index) => {
+                      const isOpen = expandedPlayer === `${entry.event_id}-${entry.player_name}`;
+                      return (
+                        <div
+                          key={`${entry.event_id}-${entry.player_name}`}
+                          style={{
+                            background: 'rgba(15,23,42,0.78)',
+                            border: '1px solid rgba(99,102,241,0.14)',
+                            borderRadius: 16,
+                            padding: 12,
+                          }}
+                        >
+                          <button
+                            onClick={() =>
+                              locked
+                                ? setExpandedPlayer(
+                                    isOpen ? null : `${entry.event_id}-${entry.player_name}`
+                                  )
+                                : null
+                            }
+                            style={{
+                              width: '100%',
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#fff',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: 0,
+                              cursor: locked ? 'pointer' : 'default',
+                              textAlign: 'left',
+                            }}
+                          >
+                            <div style={{ fontWeight: 900 }}>
+                              #{index + 1} {entry.player_name}
+                            </div>
+                            <div style={{ color: '#fde68a', fontWeight: 900 }}>
+                              {entry.score} pts
+                            </div>
+                          </button>
+
+                          {locked && (
+                            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 8 }}>
+                              Click to {isOpen ? 'hide' : 'show'} picks
+                            </div>
+                          )}
+
+                          {locked && isOpen && (
+                            <div
+                              style={{
+                                marginTop: 12,
+                                display: 'grid',
+                                gap: 8,
+                                borderTop: '1px solid rgba(99,102,241,0.12)',
+                                paddingTop: 12,
+                              }}
+                            >
+                              {fights.map((fight, fightIndex) => {
+                                const pick = entry?.picks?.[fight.key];
+                                const result = results?.[fight.key];
+                                const correct = result ? pick === result : null;
+
+                                return (
+                                  <div
+                                    key={`${entry.player_name}-${fight.key}`}
+                                    style={{
+                                      background: 'rgba(17,24,39,0.74)',
+                                      border: '1px solid rgba(99,102,241,0.12)',
+                                      borderRadius: 12,
+                                      padding: 10,
+                                    }}
+                                  >
+                                    <div style={{ color: '#c4b5fd', fontSize: 12, marginBottom: 4 }}>
+                                      Fight {fightIndex + 1}
+                                    </div>
+                                    <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                                      {fight.left} vs. {fight.right}
+                                    </div>
+                                    <div style={{ fontSize: 14 }}>
+                                      Pick: <span style={{ fontWeight: 900 }}>{pick || 'No pick'}</span>
+                                    </div>
+                                    {result && (
+                                      <div
+                                        style={{
+                                          fontSize: 13,
+                                          marginTop: 6,
+                                          color: correct ? '#86efac' : '#fca5a5',
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        {correct ? 'Correct' : 'Wrong'} · Result: {result}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              {isAdmin && (
+                <section
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))',
+                    border: '1px solid rgba(168,85,247,0.22)',
+                    borderRadius: 26,
+                    padding: 18,
+                    boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
+                    backdropFilter: 'blur(14px)',
+                  }}
+                >
+                  <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Admin results</h2>
+                  <p style={{ color: '#cbd5e1', marginTop: 0 }}>
+                    After the fights, click the official winner for each matchup to tally the scores.
+                  </p>
+
+                  {fights.map((fight) => {
+                    const selectedResult = results[fight.key];
+
+                    return (
+                      <div
+                        key={fight.key}
+                        style={{
+                          background: 'rgba(15,23,42,0.78)',
+                          border: '1px solid rgba(99,102,241,0.14)',
+                          borderRadius: 16,
+                          padding: 14,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>
+                          {fight.left} vs. {fight.right}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                          {[fight.left, fight.right].map((fighter, fighterIndex) => (
+                            <button
+                              key={`${fight.key}-result-${fighterIndex}`}
+                              onClick={() => saveResult(fight.key, fighter)}
+                              style={{
+                                background:
+                                  selectedResult === fighter
+                                    ? 'linear-gradient(90deg, #f43f5e, #ec4899)'
+                                    : 'rgba(30,41,59,0.8)',
+                                color: '#fff',
+                                border:
+                                  selectedResult === fighter
+                                    ? '1px solid rgba(244,114,182,0.7)'
+                                    : '1px solid rgba(99,102,241,0.18)',
+                                borderRadius: 12,
+                                padding: '12px 10px',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {fighter}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </section>
+              )}
+            </div>
           </div>
         </div>
-      ))}
-
-      <button onClick={submitPicks}>Save Picks</button>
-
-      <h2>Leaderboard</h2>
-      {leaderboard.map((p) => (
-        <div key={p.player_name}>
-          {p.player_name} — {p.score}
-        </div>
-      ))}
-
-      {isAdmin && (
-        <>
-          <h2>Admin</h2>
-          {fights.map((fight) => (
-            <div key={fight.key}>
-              {fight.left} vs {fight.right}
-              <button onClick={() => saveResult(fight.key, fight.left)}>Left</button>
-              <button onClick={() => saveResult(fight.key, fight.right)}>Right</button>
-            </div>
-          ))}
-        </>
-      )}
-
-      <p>{message}</p>
+      </div>
     </main>
   );
 }
