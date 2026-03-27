@@ -165,7 +165,6 @@ export default function HomePage() {
     }
 
     setLoading(true);
-    setMessage('');
 
     try {
       const submissionsResponse = await supabase
@@ -216,6 +215,47 @@ export default function HomePage() {
     }
   }, [selectedEventId]);
 
+  useEffect(() => {
+    if (!supabase || !selectedEventId) return;
+
+    const submissionsChannel = supabase
+      .channel(`submissions-${selectedEventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'submissions',
+          filter: `event_id=eq.${selectedEventId}`,
+        },
+        () => {
+          loadEventData(selectedEventId);
+        }
+      )
+      .subscribe();
+
+    const resultsChannel = supabase
+      .channel(`results-${selectedEventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'results',
+          filter: `event_id=eq.${selectedEventId}`,
+        },
+        () => {
+          loadEventData(selectedEventId);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(submissionsChannel);
+      supabase.removeChannel(resultsChannel);
+    };
+  }, [supabase, selectedEventId]);
+
   function chooseWinner(fightKey, fighter) {
     if (locked || !fighter) return;
     setPicks((prev) => ({ ...prev, [fightKey]: fighter }));
@@ -262,7 +302,6 @@ export default function HomePage() {
       }
 
       setMessage('Picks saved.');
-      await loadEventData(selectedEventId);
     } catch (error) {
       setMessage(`Could not save picks: ${error?.message || 'Failed to fetch'}`);
     }
@@ -290,7 +329,6 @@ export default function HomePage() {
       }
 
       setMessage('Result saved.');
-      await loadEventData(selectedEventId);
     } catch (error) {
       setMessage(`Could not save result: ${error?.message || 'Failed to fetch'}`);
     }
@@ -368,7 +406,7 @@ export default function HomePage() {
             }}
           >
             <div style={{ fontSize: 14, color: '#b7bfdc', marginBottom: 4 }}>How it works</div>
-            <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 16 }}>No manual uploads</h2>
+            <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 16 }}>Live updates</h2>
 
             <div
               style={{
@@ -380,8 +418,7 @@ export default function HomePage() {
                 marginBottom: 12,
               }}
             >
-              Use ESPN fighter profile links in <code>lib/events.js</code>. Your site stays clean,
-              and users can jump straight to each fighter&apos;s ESPN page.
+              Picks and results now update for everyone live while the site is open.
             </div>
 
             {message && (
