@@ -67,13 +67,7 @@ function messageStyles(text) {
   };
 }
 
-function FighterCard({
-  name,
-  espnUrl,
-  active,
-  disabled,
-  onPick,
-}) {
+function FighterCard({ name, espnUrl, active, disabled, onPick }) {
   const [imageUrl, setImageUrl] = useState(null);
 
   useEffect(() => {
@@ -439,8 +433,8 @@ export default function HomePage() {
                 marginBottom: 12,
               }}
             >
-              Add an ESPN fighter profile URL in <code>lib/events.js</code> and the headshot loads
-              automatically.
+              Add ESPN fighter profile links in <code>lib/events.js</code>. The site handles the
+              images for you.
             </div>
 
             {message && (
