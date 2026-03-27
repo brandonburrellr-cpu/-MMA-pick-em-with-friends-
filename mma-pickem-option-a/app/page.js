@@ -18,6 +18,10 @@ function formatDate(value) {
   });
 }
 
+function getEventId(event, index) {
+  return event?.id || event?.slug || `event_${index + 1}`;
+}
+
 function getEventName(event) {
   return (
     event?.name ||
@@ -43,44 +47,75 @@ function getEventDate(event) {
 }
 
 function getFightKey(index, fight) {
-  return (
-    fight?.key ||
-    fight?.id ||
-    `fight_${index + 1}`
-  );
+  if (typeof fight === 'string') return `fight_${index + 1}`;
+  return fight?.key || fight?.id || fight?.fight_key || `fight_${index + 1}`;
 }
 
-function getFightLeft(fight) {
-  return (
-    fight?.red ||
-    fight?.fighter1 ||
-    fight?.fighterA ||
-    fight?.left ||
-    fight?.a ||
-    fight?.home ||
-    ''
-  );
+function parseMatchupString(value) {
+  if (!value || typeof value !== 'string') {
+    return { left: '', right: '' };
+  }
+
+  const cleaned = value.trim();
+
+  const separators = [' vs. ', ' vs ', ' v. ', ' v ', ' - '];
+  for (const sep of separators) {
+    if (cleaned.includes(sep)) {
+      const [left, right] = cleaned.split(sep);
+      return {
+        left: (left || '').trim(),
+        right: (right || '').trim(),
+      };
+    }
+  }
+
+  return { left: cleaned, right: '' };
 }
 
-function getFightRight(fight) {
-  return (
-    fight?.blue ||
-    fight?.fighter2 ||
-    fight?.fighterB ||
-    fight?.right ||
-    fight?.b ||
-    fight?.away ||
-    ''
-  );
+function getFightSides(fight) {
+  if (typeof fight === 'string') {
+    return parseMatchupString(fight);
+  }
+
+  if (fight?.matchup) return parseMatchupString(fight.matchup);
+  if (fight?.name) return parseMatchupString(fight.name);
+  if (fight?.title) return parseMatchupString(fight.title);
+
+  return {
+    left:
+      fight?.red ||
+      fight?.fighter1 ||
+      fight?.fighterA ||
+      fight?.left ||
+      fight?.a ||
+      fight?.home ||
+      fight?.fighter1Name ||
+      fight?.redCorner ||
+      '',
+    right:
+      fight?.blue ||
+      fight?.fighter2 ||
+      fight?.fighterB ||
+      fight?.right ||
+      fight?.b ||
+      fight?.away ||
+      fight?.fighter2Name ||
+      fight?.blueCorner ||
+      '',
+  };
 }
 
 function normalizeFights(event) {
   const fights = Array.isArray(event?.fights) ? event.fights : [];
-  return fights.map((fight, index) => ({
-    key: getFightKey(index, fight),
-    left: getFightLeft(fight),
-    right: getFightRight(fight),
-  }));
+
+  return fights.map((fight, index) => {
+    const { left, right } = getFightSides(fight);
+    return {
+      key: getFightKey(index, fight),
+      left,
+      right,
+    };
+  });
 }
 
 function scoreSubmission(submission, results) {
@@ -94,7 +129,7 @@ function scoreSubmission(submission, results) {
 export default function HomePage() {
   const supabase = getSupabase();
 
-  const firstEventId = EVENTS?.[0]?.id || EVENTS?.[0]?.slug || 'event_1';
+  const firstEventId = EVENTS?.[0] ? getEventId(EVENTS[0], 0) : 'event_1';
 
   const [selectedEventId, setSelectedEventId] = useState(firstEventId);
   const [playerName, setPlayerName] = useState('');
@@ -106,7 +141,7 @@ export default function HomePage() {
 
   const selectedEvent = useMemo(() => {
     return (
-      EVENTS.find((event) => (event.id || event.slug || 'event_1') === selectedEventId) ||
+      EVENTS.find((event, index) => getEventId(event, index) === selectedEventId) ||
       EVENTS[0] ||
       {}
     );
@@ -121,24 +156,19 @@ export default function HomePage() {
   async function loadEventData(eventId) {
     if (!supabase) {
       setMessage('Add Supabase keys first.');
+      setSubmissions([]);
+      setResults({});
       return;
     }
 
     setLoading(true);
     setMessage('');
 
-    const submissionsQuery = supabase
-      .from('submissions')
-      .select('*')
-      .eq('event_id', eventId);
-
-    const resultsQuery = supabase
-      .from('results')
-      .select('*')
-      .eq('event_id', eventId);
-
     const [{ data: subs, error: subsError }, { data: res, error: resError }] =
-      await Promise.all([submissionsQuery, resultsQuery]);
+      await Promise.all([
+        supabase.from('submissions').select('*').eq('event_id', eventId),
+        supabase.from('results').select('*').eq('event_id', eventId),
+      ]);
 
     if (subsError || resError) {
       setMessage('Could not load picks or results.');
@@ -167,6 +197,7 @@ export default function HomePage() {
 
   function chooseWinner(fightKey, fighter) {
     if (locked) return;
+    if (!fighter) return;
     setPicks((prev) => ({ ...prev, [fightKey]: fighter }));
   }
 
@@ -183,7 +214,7 @@ export default function HomePage() {
       return;
     }
 
-    const complete = fights.every((fight) => picks[fight.key]);
+    const complete = fights.every((fight) => fight.left && fight.right && picks[fight.key]);
     if (!complete) {
       setMessage('Pick a winner for every fight.');
       return;
@@ -238,7 +269,7 @@ export default function HomePage() {
         ...submission,
         score: scoreSubmission(submission, results),
       }))
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => b.score - a.score || String(a.player_name).localeCompare(String(b.player_name)));
   }, [submissions, results]);
 
   return (
@@ -348,14 +379,18 @@ export default function HomePage() {
           }}
         >
           {EVENTS.map((event, index) => {
-            const eventId = event.id || event.slug || `event_${index + 1}`;
+            const eventId = getEventId(event, index);
             const active = eventId === selectedEventId;
             const eventFights = normalizeFights(event);
 
             return (
               <button
                 key={eventId}
-                onClick={() => setSelectedEventId(eventId)}
+                onClick={() => {
+                  setSelectedEventId(eventId);
+                  setPicks({});
+                  setMessage('');
+                }}
                 style={{
                   textAlign: 'left',
                   background: '#10152b',
@@ -446,15 +481,15 @@ export default function HomePage() {
                 >
                   <div style={{ color: '#b7bfdc', marginBottom: 6 }}>Fight {index + 1}</div>
                   <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-                    {fight.left} vs. {fight.right}
+                    {fight.left || 'TBD'} vs. {fight.right || 'TBD'}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    {[fight.left, fight.right].map((fighter) => (
+                    {[fight.left, fight.right].map((fighter, fighterIndex) => (
                       <button
-                        key={fighter}
+                        key={`${fight.key}-${fighterIndex}`}
                         onClick={() => chooseWinner(fight.key, fighter)}
-                        disabled={locked}
+                        disabled={locked || !fighter}
                         style={{
                           background: selectedWinner === fighter ? '#89142e' : '#151a32',
                           color: '#fff',
@@ -465,11 +500,11 @@ export default function HomePage() {
                           borderRadius: 12,
                           padding: '12px 10px',
                           fontWeight: 700,
-                          cursor: locked ? 'not-allowed' : 'pointer',
-                          opacity: locked ? 0.7 : 1,
+                          cursor: locked || !fighter ? 'not-allowed' : 'pointer',
+                          opacity: locked || !fighter ? 0.6 : 1,
                         }}
                       >
-                        {fighter}
+                        {fighter || 'TBD'}
                       </button>
                     ))}
                   </div>
@@ -520,6 +555,7 @@ export default function HomePage() {
                         padding: 12,
                         display: 'flex',
                         justifyContent: 'space-between',
+                        gap: 12,
                       }}
                     >
                       <div style={{ fontWeight: 700 }}>
@@ -559,14 +595,15 @@ export default function HomePage() {
                     }}
                   >
                     <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
-                      {fight.left} vs. {fight.right}
+                      {fight.left || 'TBD'} vs. {fight.right || 'TBD'}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      {[fight.left, fight.right].map((fighter) => (
+                      {[fight.left, fight.right].map((fighter, fighterIndex) => (
                         <button
-                          key={fighter}
+                          key={`${fight.key}-result-${fighterIndex}`}
                           onClick={() => saveResult(fight.key, fighter)}
+                          disabled={!fighter}
                           style={{
                             background: selectedResult === fighter ? '#89142e' : '#151a32',
                             color: '#fff',
@@ -577,10 +614,11 @@ export default function HomePage() {
                             borderRadius: 12,
                             padding: '12px 10px',
                             fontWeight: 700,
-                            cursor: 'pointer',
+                            cursor: !fighter ? 'not-allowed' : 'pointer',
+                            opacity: !fighter ? 0.6 : 1,
                           }}
                         >
-                          {fighter}
+                          {fighter || 'TBD'}
                         </button>
                       ))}
                     </div>
