@@ -22,100 +22,13 @@ function getEventId(event, index) {
   return event?.id || event?.slug || `event_${index + 1}`;
 }
 
-function getEventName(event) {
-  return (
-    event?.name ||
-    event?.title ||
-    event?.headline ||
-    event?.mainEvent ||
-    'Fight Card'
-  );
-}
-
-function getEventLocation(event) {
-  return (
-    event?.location ||
-    event?.venue ||
-    event?.city ||
-    event?.arena ||
-    ''
-  );
-}
-
-function getEventDate(event) {
-  return event?.date || event?.datetime || event?.startsAt || event?.start_time || '';
-}
-
-function getFightKey(index, fight) {
-  if (typeof fight === 'string') return `fight_${index + 1}`;
-  return fight?.key || fight?.id || fight?.fight_key || `fight_${index + 1}`;
-}
-
-function parseMatchupString(value) {
-  if (!value || typeof value !== 'string') {
-    return { left: '', right: '' };
-  }
-
-  const cleaned = value.trim();
-
-  const separators = [' vs. ', ' vs ', ' v. ', ' v ', ' - '];
-  for (const sep of separators) {
-    if (cleaned.includes(sep)) {
-      const [left, right] = cleaned.split(sep);
-      return {
-        left: (left || '').trim(),
-        right: (right || '').trim(),
-      };
-    }
-  }
-
-  return { left: cleaned, right: '' };
-}
-
-function getFightSides(fight) {
-  if (typeof fight === 'string') {
-    return parseMatchupString(fight);
-  }
-
-  if (fight?.matchup) return parseMatchupString(fight.matchup);
-  if (fight?.name) return parseMatchupString(fight.name);
-  if (fight?.title) return parseMatchupString(fight.title);
-
-  return {
-    left:
-      fight?.red ||
-      fight?.fighter1 ||
-      fight?.fighterA ||
-      fight?.left ||
-      fight?.a ||
-      fight?.home ||
-      fight?.fighter1Name ||
-      fight?.redCorner ||
-      '',
-    right:
-      fight?.blue ||
-      fight?.fighter2 ||
-      fight?.fighterB ||
-      fight?.right ||
-      fight?.b ||
-      fight?.away ||
-      fight?.fighter2Name ||
-      fight?.blueCorner ||
-      '',
-  };
-}
-
 function normalizeFights(event) {
   const fights = Array.isArray(event?.fights) ? event.fights : [];
-
-  return fights.map((fight, index) => {
-    const { left, right } = getFightSides(fight);
-    return {
-      key: getFightKey(index, fight),
-      left,
-      right,
-    };
-  });
+  return fights.map((fight, index) => ({
+    key: fight?.id || `fight_${index + 1}`,
+    left: fight?.red || '',
+    right: fight?.blue || '',
+  }));
 }
 
 function scoreSubmission(submission, results) {
@@ -147,15 +60,12 @@ export default function HomePage() {
     );
   }, [selectedEventId]);
 
-  const eventDate = getEventDate(selectedEvent);
-  const eventName = getEventName(selectedEvent);
-  const eventLocation = getEventLocation(selectedEvent);
   const fights = normalizeFights(selectedEvent);
-  const locked = eventDate ? new Date() >= new Date(eventDate) : false;
+  const locked = selectedEvent?.date ? new Date() >= new Date(selectedEvent.date) : false;
 
   async function loadEventData(eventId) {
     if (!supabase) {
-      setMessage('Add Supabase keys first.');
+      setMessage('Supabase client not available. Check env vars.');
       setSubmissions([]);
       setResults({});
       return;
@@ -164,14 +74,30 @@ export default function HomePage() {
     setLoading(true);
     setMessage('');
 
-    const [{ data: subs, error: subsError }, { data: res, error: resError }] =
-      await Promise.all([
-        supabase.from('submissions').select('*').eq('event_id', eventId),
-        supabase.from('results').select('*').eq('event_id', eventId),
-      ]);
+    const submissionsResponse = await supabase
+      .from('submissions')
+      .select('*')
+      .eq('event_id', eventId);
 
-    if (subsError || resError) {
-      setMessage('Could not load picks or results.');
+    const resultsResponse = await supabase
+      .from('results')
+      .select('*')
+      .eq('event_id', eventId);
+
+    if (submissionsResponse.error || resultsResponse.error) {
+      const details = [
+        submissionsResponse.error?.message,
+        resultsResponse.error?.message,
+      ]
+        .filter(Boolean)
+        .join(' | ');
+
+      console.error('Load error:', {
+        submissionsError: submissionsResponse.error,
+        resultsError: resultsResponse.error,
+      });
+
+      setMessage(`Could not load picks or results: ${details || 'unknown error'}`);
       setSubmissions([]);
       setResults({});
       setLoading(false);
@@ -179,12 +105,11 @@ export default function HomePage() {
     }
 
     const nextResults = {};
-    for (const row of res || []) {
-      const key = row.fight_key || row.fightId || row.fight_id;
-      if (key) nextResults[key] = row.winner;
+    for (const row of resultsResponse.data || []) {
+      nextResults[row.fight_key] = row.winner;
     }
 
-    setSubmissions(subs || []);
+    setSubmissions(submissionsResponse.data || []);
     setResults(nextResults);
     setLoading(false);
   }
@@ -196,8 +121,7 @@ export default function HomePage() {
   }, [selectedEventId]);
 
   function chooseWinner(fightKey, fighter) {
-    if (locked) return;
-    if (!fighter) return;
+    if (locked || !fighter) return;
     setPicks((prev) => ({ ...prev, [fightKey]: fighter }));
   }
 
@@ -210,7 +134,7 @@ export default function HomePage() {
     }
 
     if (!supabase) {
-      setMessage('Add Supabase keys first.');
+      setMessage('Supabase client not available. Check env vars.');
       return;
     }
 
@@ -226,12 +150,15 @@ export default function HomePage() {
       picks,
     };
 
-    const { error } = await supabase.from('submissions').upsert(payload, {
+    const response = await supabase.from('submissions').upsert(payload, {
       onConflict: 'event_id,player_name',
     });
 
-    if (error) {
-      setMessage('Could not save picks.');
+    if (response.error) {
+      console.error('Save picks error:', response.error);
+      setMessage(
+        `Could not save picks: ${response.error.message || 'unknown error'}`
+      );
       return;
     }
 
@@ -241,11 +168,11 @@ export default function HomePage() {
 
   async function saveResult(fightKey, winner) {
     if (!supabase) {
-      setMessage('Add Supabase keys first.');
+      setMessage('Supabase client not available. Check env vars.');
       return;
     }
 
-    const { error } = await supabase.from('results').upsert(
+    const response = await supabase.from('results').upsert(
       {
         event_id: selectedEventId,
         fight_key: fightKey,
@@ -254,8 +181,11 @@ export default function HomePage() {
       { onConflict: 'event_id,fight_key' }
     );
 
-    if (error) {
-      setMessage('Could not save result.');
+    if (response.error) {
+      console.error('Save result error:', response.error);
+      setMessage(
+        `Could not save result: ${response.error.message || 'unknown error'}`
+      );
       return;
     }
 
@@ -360,6 +290,7 @@ export default function HomePage() {
                   color: message.toLowerCase().includes('saved') ? '#9be3bc' : '#f5d58b',
                   padding: 14,
                   borderRadius: 12,
+                  wordBreak: 'break-word',
                 }}
               >
                 {message}
@@ -381,7 +312,6 @@ export default function HomePage() {
           {EVENTS.map((event, index) => {
             const eventId = getEventId(event, index);
             const active = eventId === selectedEventId;
-            const eventFights = normalizeFights(event);
 
             return (
               <button
@@ -402,15 +332,15 @@ export default function HomePage() {
                 }}
               >
                 <div style={{ color: '#b7bfdc', fontSize: 13, marginBottom: 10 }}>
-                  {formatDate(getEventDate(event))}
+                  {formatDate(event?.date)}
                 </div>
                 <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.15, marginBottom: 8 }}>
-                  {getEventName(event)}
+                  {event?.name || 'Fight Card'}
                 </div>
                 <div style={{ color: '#b7bfdc', fontSize: 14, marginBottom: 10 }}>
-                  {getEventLocation(event)}
+                  {event?.location || ''}
                 </div>
-                <div style={{ fontSize: 14 }}>{eventFights.length} fights</div>
+                <div style={{ fontSize: 14 }}>{event?.fights?.length || 0} fights</div>
               </button>
             );
           })}
@@ -432,9 +362,9 @@ export default function HomePage() {
               padding: 18,
             }}
           >
-            <h2 style={{ marginTop: 0, marginBottom: 6 }}>{eventName}</h2>
+            <h2 style={{ marginTop: 0, marginBottom: 6 }}>{selectedEvent?.name || 'Fight Card'}</h2>
             <div style={{ color: '#b7bfdc', marginBottom: 12 }}>
-              {[eventLocation, formatDate(eventDate)].filter(Boolean).join(' · ')}
+              {[selectedEvent?.location, formatDate(selectedEvent?.date)].filter(Boolean).join(' · ')}
             </div>
 
             <div
@@ -481,7 +411,7 @@ export default function HomePage() {
                 >
                   <div style={{ color: '#b7bfdc', marginBottom: 6 }}>Fight {index + 1}</div>
                   <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-                    {fight.left || 'TBD'} vs. {fight.right || 'TBD'}
+                    {fight.left} vs. {fight.right}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -489,7 +419,7 @@ export default function HomePage() {
                       <button
                         key={`${fight.key}-${fighterIndex}`}
                         onClick={() => chooseWinner(fight.key, fighter)}
-                        disabled={locked || !fighter}
+                        disabled={locked}
                         style={{
                           background: selectedWinner === fighter ? '#89142e' : '#151a32',
                           color: '#fff',
@@ -500,11 +430,11 @@ export default function HomePage() {
                           borderRadius: 12,
                           padding: '12px 10px',
                           fontWeight: 700,
-                          cursor: locked || !fighter ? 'not-allowed' : 'pointer',
-                          opacity: locked || !fighter ? 0.6 : 1,
+                          cursor: locked ? 'not-allowed' : 'pointer',
+                          opacity: locked ? 0.7 : 1,
                         }}
                       >
-                        {fighter || 'TBD'}
+                        {fighter}
                       </button>
                     ))}
                   </div>
@@ -595,7 +525,7 @@ export default function HomePage() {
                     }}
                   >
                     <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
-                      {fight.left || 'TBD'} vs. {fight.right || 'TBD'}
+                      {fight.left} vs. {fight.right}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -603,7 +533,6 @@ export default function HomePage() {
                         <button
                           key={`${fight.key}-result-${fighterIndex}`}
                           onClick={() => saveResult(fight.key, fighter)}
-                          disabled={!fighter}
                           style={{
                             background: selectedResult === fighter ? '#89142e' : '#151a32',
                             color: '#fff',
@@ -614,11 +543,10 @@ export default function HomePage() {
                             borderRadius: 12,
                             padding: '12px 10px',
                             fontWeight: 700,
-                            cursor: !fighter ? 'not-allowed' : 'pointer',
-                            opacity: !fighter ? 0.6 : 1,
+                            cursor: 'pointer',
                           }}
                         >
-                          {fighter || 'TBD'}
+                          {fighter}
                         </button>
                       ))}
                     </div>
