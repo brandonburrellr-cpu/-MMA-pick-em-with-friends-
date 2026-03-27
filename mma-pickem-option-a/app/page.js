@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
 import { EVENTS } from '../lib/events';
@@ -29,8 +28,6 @@ function normalizeFights(event) {
     key: fight?.id || `fight_${index + 1}`,
     left: fight?.red || '',
     right: fight?.blue || '',
-    leftImage: fight?.redImage || '/fighters/placeholder.jpg',
-    rightImage: fight?.blueImage || '/fighters/placeholder.jpg',
     leftEspn: fight?.redEspn || '#',
     rightEspn: fight?.blueEspn || '#',
   }));
@@ -44,14 +41,73 @@ function scoreSubmission(submission, results) {
   return score;
 }
 
-function FighterButton({
+function messageStyles(text) {
+  const lower = String(text || '').toLowerCase();
+
+  if (lower.includes('saved')) {
+    return {
+      background: '#0f3321',
+      border: '1px solid #1b6d45',
+      color: '#9be3bc',
+    };
+  }
+
+  if (lower.includes('locked')) {
+    return {
+      background: '#3a230d',
+      border: '1px solid #714114',
+      color: '#f3c281',
+    };
+  }
+
+  return {
+    background: '#2b1f08',
+    border: '1px solid #5a4314',
+    color: '#f5d58b',
+  };
+}
+
+function FighterCard({
   name,
-  image,
   espnUrl,
   active,
   disabled,
   onPick,
 }) {
+  const [imageUrl, setImageUrl] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadImage() {
+      if (!espnUrl || espnUrl === '#') {
+        setImageUrl(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/espn-image?url=${encodeURIComponent(espnUrl)}`
+        );
+        const data = await response.json();
+
+        if (!cancelled) {
+          setImageUrl(data?.image || null);
+        }
+      } catch {
+        if (!cancelled) {
+          setImageUrl(null);
+        }
+      }
+    }
+
+    loadImage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [espnUrl]);
+
   return (
     <div
       style={{
@@ -78,23 +134,33 @@ function FighterButton({
       >
         <div
           style={{
-            position: 'relative',
-            width: 52,
-            height: 52,
+            width: 56,
+            height: 56,
             borderRadius: 999,
             overflow: 'hidden',
             flexShrink: 0,
             background: '#0b1022',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
-          <Image
-            src={image}
-            alt={name}
-            fill
-            sizes="52px"
-            style={{ objectFit: 'cover' }}
-          />
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={name}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                display: 'block',
+              }}
+            />
+          ) : (
+            <span style={{ fontSize: 12, color: '#b7bfdc' }}>IMG</span>
+          )}
         </div>
+
         <div style={{ fontWeight: 700, lineHeight: 1.15 }}>{name}</div>
       </a>
 
@@ -300,32 +366,6 @@ export default function HomePage() {
       });
   }, [submissions, results]);
 
-  function messageStyles(text) {
-    const lower = String(text || '').toLowerCase();
-
-    if (lower.includes('saved')) {
-      return {
-        background: '#0f3321',
-        border: '1px solid #1b6d45',
-        color: '#9be3bc',
-      };
-    }
-
-    if (lower.includes('locked')) {
-      return {
-        background: '#3a230d',
-        border: '1px solid #714114',
-        color: '#f3c281',
-      };
-    }
-
-    return {
-      background: '#2b1f08',
-      border: '1px solid #5a4314',
-      color: '#f5d58b',
-    };
-  }
-
   return (
     <main
       style={{
@@ -373,8 +413,8 @@ export default function HomePage() {
             </h1>
 
             <p style={{ color: '#b7bfdc', margin: 0, maxWidth: 650 }}>
-              Choose an upcoming UFC card, click the fighter photo to open ESPN, then lock in your
-              pick below each photo.
+              Fighter pictures load automatically from ESPN profile pages. Click a picture to open
+              ESPN, then click the pick button to choose that fighter.
             </p>
           </section>
 
@@ -387,7 +427,7 @@ export default function HomePage() {
             }}
           >
             <div style={{ fontSize: 14, color: '#b7bfdc', marginBottom: 4 }}>How it works</div>
-            <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 16 }}>No login needed</h2>
+            <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 16 }}>No manual uploads</h2>
 
             <div
               style={{
@@ -399,8 +439,8 @@ export default function HomePage() {
                 marginBottom: 12,
               }}
             >
-              Everyone can save picks. After the card locks, everyone can open the leaderboard and
-              see each player&apos;s picks.
+              Add an ESPN fighter profile URL in <code>lib/events.js</code> and the headshot loads
+              automatically.
             </div>
 
             {message && (
@@ -535,17 +575,15 @@ export default function HomePage() {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <FighterButton
+                    <FighterCard
                       name={fight.left}
-                      image={fight.leftImage}
                       espnUrl={fight.leftEspn}
                       active={selectedWinner === fight.left}
                       disabled={locked}
                       onPick={() => chooseWinner(fight.key, fight.left)}
                     />
-                    <FighterButton
+                    <FighterCard
                       name={fight.right}
-                      image={fight.rightImage}
                       espnUrl={fight.rightEspn}
                       active={selectedWinner === fight.right}
                       disabled={locked}
@@ -689,12 +727,6 @@ export default function HomePage() {
                       </div>
                     );
                   })}
-                </div>
-              )}
-
-              {!locked && leaderboard.length > 0 && (
-                <div style={{ color: '#b7bfdc', fontSize: 12, marginTop: 12 }}>
-                  Full picks become visible after the card locks.
                 </div>
               )}
             </section>
