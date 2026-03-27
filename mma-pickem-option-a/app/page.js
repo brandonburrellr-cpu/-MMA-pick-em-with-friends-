@@ -41,32 +41,6 @@ function scoreSubmission(submission, results) {
   return score;
 }
 
-function messageStyles(text) {
-  const lower = String(text || '').toLowerCase();
-
-  if (lower.includes('saved')) {
-    return {
-      background: '#0f3321',
-      border: '1px solid #1b6d45',
-      color: '#9be3bc',
-    };
-  }
-
-  if (lower.includes('locked')) {
-    return {
-      background: '#3a230d',
-      border: '1px solid #714114',
-      color: '#f3c281',
-    };
-  }
-
-  return {
-    background: '#2b1f08',
-    border: '1px solid #5a4314',
-    color: '#f5d58b',
-  };
-}
-
 function FighterCard({ name, espnUrl, active, disabled, onPick }) {
   return (
     <div
@@ -75,37 +49,40 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
         border: active ? '1px solid #e11d48' : '1px solid #2a3158',
         borderRadius: 14,
         overflow: 'hidden',
-        opacity: disabled ? 0.7 : 1,
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      <div
+      {/* CLICKABLE ESPN SECTION */}
+      <a
+        href={espnUrl && espnUrl !== '#' ? espnUrl : undefined}
+        target="_blank"
+        rel="noreferrer"
         style={{
           padding: 14,
+          textDecoration: 'none',
+          color: '#fff',
+          display: 'block',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
+          cursor: espnUrl ? 'pointer' : 'default',
         }}
       >
-        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 10 }}>{name}</div>
+        <div style={{ fontWeight: 800, fontSize: 16 }}>
+          {name}
+        </div>
 
-        <a
-          href={espnUrl && espnUrl !== '#' ? espnUrl : undefined}
-          target="_blank"
-          rel="noreferrer"
+        <div
           style={{
-            display: 'inline-block',
-            background: '#0b1022',
-            color: '#fff',
-            textDecoration: 'none',
-            padding: '8px 12px',
-            borderRadius: 10,
-            border: '1px solid #2a3158',
-            fontSize: 13,
-            fontWeight: 700,
+            marginTop: 8,
+            fontSize: 12,
+            color: '#b7bfdc',
           }}
         >
-          View ESPN Profile
-        </a>
-      </div>
+          View ESPN Profile →
+        </div>
+      </a>
 
+      {/* PICK BUTTON */}
       <button
         onClick={onPick}
         disabled={disabled}
@@ -136,9 +113,7 @@ export default function HomePage() {
   const [picks, setPicks] = useState({});
   const [submissions, setSubmissions] = useState([]);
   const [results, setResults] = useState({});
-  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const [expandedPlayer, setExpandedPlayer] = useState(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -154,623 +129,120 @@ export default function HomePage() {
   }, [selectedEventId]);
 
   const fights = normalizeFights(selectedEvent);
-  const locked = selectedEvent?.date ? new Date() >= new Date(selectedEvent.date) : false;
 
-  async function loadEventData(eventId) {
-    if (!supabase) {
-      setMessage('Supabase client not available. Check env vars.');
-      setSubmissions([]);
-      setResults({});
-      return;
-    }
+  async function loadData() {
+    if (!supabase) return;
 
-    setLoading(true);
+    const { data: subs } = await supabase
+      .from('submissions')
+      .select('*')
+      .eq('event_id', selectedEventId);
 
-    try {
-      const submissionsResponse = await supabase
-        .from('submissions')
-        .select('*')
-        .eq('event_id', eventId);
+    const { data: res } = await supabase
+      .from('results')
+      .select('*')
+      .eq('event_id', selectedEventId);
 
-      const resultsResponse = await supabase
-        .from('results')
-        .select('*')
-        .eq('event_id', eventId);
+    const r = {};
+    res?.forEach((row) => (r[row.fight_key] = row.winner));
 
-      if (submissionsResponse.error || resultsResponse.error) {
-        const details = [
-          submissionsResponse.error?.message,
-          resultsResponse.error?.message,
-        ]
-          .filter(Boolean)
-          .join(' | ');
-
-        setMessage(`Could not load picks or results: ${details || 'unknown error'}`);
-        setSubmissions([]);
-        setResults({});
-        setLoading(false);
-        return;
-      }
-
-      const nextResults = {};
-      for (const row of resultsResponse.data || []) {
-        nextResults[row.fight_key] = row.winner;
-      }
-
-      setSubmissions(submissionsResponse.data || []);
-      setResults(nextResults);
-      setLoading(false);
-    } catch (error) {
-      setMessage(`Could not load picks or results: ${error?.message || 'Failed to fetch'}`);
-      setSubmissions([]);
-      setResults({});
-      setLoading(false);
-    }
+    setSubmissions(subs || []);
+    setResults(r);
   }
 
   useEffect(() => {
-    if (selectedEventId) {
-      loadEventData(selectedEventId);
-      setExpandedPlayer(null);
-    }
+    loadData();
   }, [selectedEventId]);
 
-  useEffect(() => {
-    if (!supabase || !selectedEventId) return;
-
-    const submissionsChannel = supabase
-      .channel(`submissions-${selectedEventId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'submissions',
-          filter: `event_id=eq.${selectedEventId}`,
-        },
-        () => {
-          loadEventData(selectedEventId);
-        }
-      )
-      .subscribe();
-
-    const resultsChannel = supabase
-      .channel(`results-${selectedEventId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'results',
-          filter: `event_id=eq.${selectedEventId}`,
-        },
-        () => {
-          loadEventData(selectedEventId);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(submissionsChannel);
-      supabase.removeChannel(resultsChannel);
-    };
-  }, [supabase, selectedEventId]);
-
   function chooseWinner(fightKey, fighter) {
-    if (locked || !fighter) return;
     setPicks((prev) => ({ ...prev, [fightKey]: fighter }));
   }
 
   async function submitPicks() {
-    const cleanName = playerName.trim();
+    if (!playerName) return setMessage('Enter your name');
 
-    if (!cleanName) {
-      setMessage('Enter your name first.');
-      return;
-    }
-
-    if (locked) {
-      setMessage('Picks are locked for this card.');
-      return;
-    }
-
-    if (!supabase) {
-      setMessage('Supabase client not available. Check env vars.');
-      return;
-    }
-
-    const complete = fights.every((fight) => fight.left && fight.right && picks[fight.key]);
-    if (!complete) {
-      setMessage('Pick a winner for every fight.');
-      return;
-    }
-
-    const payload = {
+    await supabase.from('submissions').upsert({
       event_id: selectedEventId,
-      player_name: cleanName,
+      player_name: playerName,
       picks,
-    };
+    });
 
-    try {
-      const response = await supabase.from('submissions').upsert(payload, {
-        onConflict: 'event_id,player_name',
-      });
-
-      if (response.error) {
-        setMessage(`Could not save picks: ${response.error.message || 'unknown error'}`);
-        return;
-      }
-
-      setMessage('Picks saved.');
-    } catch (error) {
-      setMessage(`Could not save picks: ${error?.message || 'Failed to fetch'}`);
-    }
+    setMessage('Saved!');
+    loadData();
   }
 
   async function saveResult(fightKey, winner) {
-    if (!supabase) {
-      setMessage('Supabase client not available. Check env vars.');
-      return;
-    }
+    await supabase.from('results').upsert({
+      event_id: selectedEventId,
+      fight_key: fightKey,
+      winner,
+    });
 
-    try {
-      const response = await supabase.from('results').upsert(
-        {
-          event_id: selectedEventId,
-          fight_key: fightKey,
-          winner,
-        },
-        { onConflict: 'event_id,fight_key' }
-      );
-
-      if (response.error) {
-        setMessage(`Could not save result: ${response.error.message || 'unknown error'}`);
-        return;
-      }
-
-      setMessage('Result saved.');
-    } catch (error) {
-      setMessage(`Could not save result: ${error?.message || 'Failed to fetch'}`);
-    }
+    loadData();
   }
 
-  const leaderboard = useMemo(() => {
-    return [...submissions]
-      .map((submission) => ({
-        ...submission,
-        score: scoreSubmission(submission, results),
-      }))
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return String(a.player_name).localeCompare(String(b.player_name));
-      });
-  }, [submissions, results]);
+  const leaderboard = [...submissions]
+    .map((s) => ({
+      ...s,
+      score: scoreSubmission(s, results),
+    }))
+    .sort((a, b) => b.score - a.score);
 
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        background: '#050816',
-        color: '#fff',
-        padding: '32px 20px',
-        fontFamily: 'Inter, system-ui, sans-serif',
-      }}
-    >
-      <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '2fr 1.1fr',
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <section
-            style={{
-              background: '#0f1328',
-              border: '1px solid #1d2242',
-              borderRadius: 20,
-              padding: 24,
-            }}
-          >
-            <div
-              style={{
-                display: 'inline-block',
-                background: '#e11d48',
-                color: '#fff',
-                fontSize: 12,
-                fontWeight: 700,
-                padding: '6px 10px',
-                borderRadius: 999,
-                marginBottom: 16,
-              }}
-            >
-              MMA PICK&apos;EM
-            </div>
+    <main style={{ padding: 30, color: 'white' }}>
+      <h1>MMA Pick’Em</h1>
 
-            <h1 style={{ fontSize: 28, lineHeight: 1.15, margin: 0, marginBottom: 14 }}>
-              Pick the winners. Beat your friends.
-            </h1>
+      <input
+        placeholder="Your name"
+        value={playerName}
+        onChange={(e) => setPlayerName(e.target.value)}
+        style={{ marginBottom: 20 }}
+      />
 
-            <p style={{ color: '#b7bfdc', margin: 0, maxWidth: 650 }}>
-              Click each fighter&apos;s ESPN button to view their profile, then pick who you think wins.
-            </p>
-          </section>
+      {fights.map((fight) => (
+        <div key={fight.key} style={{ marginBottom: 20 }}>
+          <h3>{fight.left} vs {fight.right}</h3>
 
-          <section
-            style={{
-              background: '#0f1328',
-              border: '1px solid #1d2242',
-              borderRadius: 20,
-              padding: 24,
-            }}
-          >
-            <div style={{ fontSize: 14, color: '#b7bfdc', marginBottom: 4 }}>How it works</div>
-            <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 16 }}>Live updates</h2>
-
-            <div
-              style={{
-                background: '#2b1f08',
-                border: '1px solid #5a4314',
-                color: '#f5d58b',
-                padding: 14,
-                borderRadius: 12,
-                marginBottom: 12,
-              }}
-            >
-              Picks and results now update for everyone live while the site is open.
-            </div>
-
-            {message && (
-              <div
-                style={{
-                  ...messageStyles(message),
-                  padding: 14,
-                  borderRadius: 12,
-                  wordBreak: 'break-word',
-                }}
-              >
-                {message}
-              </div>
-            )}
-          </section>
-        </div>
-
-        <h2 style={{ marginBottom: 12 }}>Upcoming events</h2>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-            gap: 14,
-            marginBottom: 18,
-          }}
-        >
-          {EVENTS.map((event, index) => {
-            const eventId = getEventId(event, index);
-            const active = eventId === selectedEventId;
-
-            return (
-              <button
-                key={eventId}
-                onClick={() => {
-                  setSelectedEventId(eventId);
-                  setPicks({});
-                  setMessage('');
-                }}
-                style={{
-                  textAlign: 'left',
-                  background: '#10152b',
-                  border: active ? '1px solid #c81e4b' : '1px solid #1d2242',
-                  borderRadius: 18,
-                  padding: 16,
-                  color: '#fff',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ color: '#b7bfdc', fontSize: 13, marginBottom: 10 }}>
-                  {formatDate(event?.date)}
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.15, marginBottom: 8 }}>
-                  {event?.name || 'Fight Card'}
-                </div>
-                <div style={{ color: '#b7bfdc', fontSize: 14, marginBottom: 10 }}>
-                  {event?.location || ''}
-                </div>
-                <div style={{ fontSize: 14 }}>{event?.fights?.length || 0} fights</div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1.25fr 1fr',
-            gap: 18,
-            alignItems: 'start',
-          }}
-        >
-          <section
-            style={{
-              background: '#0f1328',
-              border: '1px solid #1d2242',
-              borderRadius: 20,
-              padding: 18,
-            }}
-          >
-            <h2 style={{ marginTop: 0, marginBottom: 6 }}>{selectedEvent?.name || 'Fight Card'}</h2>
-            <div style={{ color: '#b7bfdc', marginBottom: 12 }}>
-              {[selectedEvent?.location, formatDate(selectedEvent?.date)].filter(Boolean).join(' · ')}
-            </div>
-
-            <div
-              style={{
-                background: locked ? '#3a230d' : '#0f3321',
-                color: locked ? '#f3c281' : '#9be3bc',
-                border: locked ? '1px solid #714114' : '1px solid #1b6d45',
-                borderRadius: 12,
-                padding: 12,
-                marginBottom: 12,
-              }}
-            >
-              {locked ? 'Picks are locked for this card.' : 'Picks are open for this card.'}
-            </div>
-
-            <input
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              placeholder="Enter your name"
-              style={{
-                width: '100%',
-                background: '#090d1c',
-                color: '#fff',
-                border: '1px solid #1d2242',
-                borderRadius: 10,
-                padding: '12px 14px',
-                marginBottom: 14,
-                outline: 'none',
-              }}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <FighterCard
+              name={fight.left}
+              espnUrl={fight.leftEspn}
+              active={picks[fight.key] === fight.left}
+              onPick={() => chooseWinner(fight.key, fight.left)}
             />
-
-            {fights.map((fight, index) => {
-              const selectedWinner = picks[fight.key];
-
-              return (
-                <div
-                  key={fight.key}
-                  style={{
-                    background: '#0b1022',
-                    border: '1px solid #1d2242',
-                    borderRadius: 16,
-                    padding: 14,
-                    marginBottom: 12,
-                  }}
-                >
-                  <div style={{ color: '#b7bfdc', marginBottom: 6 }}>Fight {index + 1}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-                    {fight.left} vs. {fight.right}
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <FighterCard
-                      name={fight.left}
-                      espnUrl={fight.leftEspn}
-                      active={selectedWinner === fight.left}
-                      disabled={locked}
-                      onPick={() => chooseWinner(fight.key, fight.left)}
-                    />
-                    <FighterCard
-                      name={fight.right}
-                      espnUrl={fight.rightEspn}
-                      active={selectedWinner === fight.right}
-                      disabled={locked}
-                      onPick={() => chooseWinner(fight.key, fight.right)}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-
-            <button
-              onClick={submitPicks}
-              disabled={locked || loading}
-              style={{
-                width: '100%',
-                background: locked ? '#3a3f5e' : '#e11d48',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 12,
-                padding: '14px 16px',
-                fontWeight: 800,
-                cursor: locked || loading ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {locked ? 'Picks locked' : loading ? 'Loading...' : 'Save my picks'}
-            </button>
-          </section>
-
-          <div style={{ display: 'grid', gap: 18 }}>
-            <section
-              style={{
-                background: '#0f1328',
-                border: '1px solid #1d2242',
-                borderRadius: 20,
-                padding: 18,
-              }}
-            >
-              <h2 style={{ marginTop: 0 }}>Leaderboard</h2>
-
-              {leaderboard.length === 0 ? (
-                <div style={{ color: '#b7bfdc' }}>No picks saved yet.</div>
-              ) : (
-                <div style={{ display: 'grid', gap: 10 }}>
-                  {leaderboard.map((entry, index) => {
-                    const isOpen = expandedPlayer === `${entry.event_id}-${entry.player_name}`;
-                    return (
-                      <div
-                        key={`${entry.event_id}-${entry.player_name}`}
-                        style={{
-                          background: '#0b1022',
-                          border: '1px solid #1d2242',
-                          borderRadius: 14,
-                          padding: 12,
-                        }}
-                      >
-                        <button
-                          onClick={() =>
-                            locked
-                              ? setExpandedPlayer(
-                                  isOpen ? null : `${entry.event_id}-${entry.player_name}`
-                                )
-                              : null
-                          }
-                          style={{
-                            width: '100%',
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#fff',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: 0,
-                            cursor: locked ? 'pointer' : 'default',
-                            textAlign: 'left',
-                          }}
-                        >
-                          <div style={{ fontWeight: 700 }}>
-                            #{index + 1} {entry.player_name}
-                          </div>
-                          <div style={{ color: '#f5d58b', fontWeight: 800 }}>
-                            {entry.score} pts
-                          </div>
-                        </button>
-
-                        {locked && (
-                          <div style={{ color: '#b7bfdc', fontSize: 12, marginTop: 8 }}>
-                            Click to {isOpen ? 'hide' : 'show'} picks
-                          </div>
-                        )}
-
-                        {locked && isOpen && (
-                          <div
-                            style={{
-                              marginTop: 12,
-                              display: 'grid',
-                              gap: 8,
-                              borderTop: '1px solid #1d2242',
-                              paddingTop: 12,
-                            }}
-                          >
-                            {fights.map((fight, fightIndex) => {
-                              const pick = entry?.picks?.[fight.key];
-                              const result = results?.[fight.key];
-                              const correct = result ? pick === result : null;
-
-                              return (
-                                <div
-                                  key={`${entry.player_name}-${fight.key}`}
-                                  style={{
-                                    background: '#10152b',
-                                    border: '1px solid #1d2242',
-                                    borderRadius: 10,
-                                    padding: 10,
-                                  }}
-                                >
-                                  <div style={{ color: '#b7bfdc', fontSize: 12, marginBottom: 4 }}>
-                                    Fight {fightIndex + 1}
-                                  </div>
-                                  <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                                    {fight.left} vs. {fight.right}
-                                  </div>
-                                  <div style={{ fontSize: 14 }}>
-                                    Pick: <span style={{ fontWeight: 700 }}>{pick || 'No pick'}</span>
-                                  </div>
-                                  {result && (
-                                    <div
-                                      style={{
-                                        fontSize: 13,
-                                        marginTop: 6,
-                                        color: correct ? '#9be3bc' : '#f5b0b0',
-                                      }}
-                                    >
-                                      {correct ? 'Correct' : 'Wrong'} · Result: {result}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {isAdmin && (
-              <section
-                style={{
-                  background: '#0f1328',
-                  border: '1px solid #1d2242',
-                  borderRadius: 20,
-                  padding: 18,
-                }}
-              >
-                <h2 style={{ marginTop: 0 }}>Admin results</h2>
-                <p style={{ color: '#b7bfdc', marginTop: 0 }}>
-                  After the fights, click the official winner for each matchup to tally the scores.
-                </p>
-
-                {fights.map((fight) => {
-                  const selectedResult = results[fight.key];
-
-                  return (
-                    <div
-                      key={fight.key}
-                      style={{
-                        background: '#0b1022',
-                        border: '1px solid #1d2242',
-                        borderRadius: 16,
-                        padding: 14,
-                        marginBottom: 12,
-                      }}
-                    >
-                      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
-                        {fight.left} vs. {fight.right}
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        {[fight.left, fight.right].map((fighter, fighterIndex) => (
-                          <button
-                            key={`${fight.key}-result-${fighterIndex}`}
-                            onClick={() => saveResult(fight.key, fighter)}
-                            style={{
-                              background: selectedResult === fighter ? '#89142e' : '#151a32',
-                              color: '#fff',
-                              border:
-                                selectedResult === fighter
-                                  ? '1px solid #e11d48'
-                                  : '1px solid #2a3158',
-                              borderRadius: 12,
-                              padding: '12px 10px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {fighter}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </section>
-            )}
+            <FighterCard
+              name={fight.right}
+              espnUrl={fight.rightEspn}
+              active={picks[fight.key] === fight.right}
+              onPick={() => chooseWinner(fight.key, fight.right)}
+            />
           </div>
         </div>
-      </div>
+      ))}
+
+      <button onClick={submitPicks}>Save Picks</button>
+
+      <h2>Leaderboard</h2>
+      {leaderboard.map((p) => (
+        <div key={p.player_name}>
+          {p.player_name} — {p.score}
+        </div>
+      ))}
+
+      {isAdmin && (
+        <>
+          <h2>Admin</h2>
+          {fights.map((fight) => (
+            <div key={fight.key}>
+              {fight.left} vs {fight.right}
+              <button onClick={() => saveResult(fight.key, fight.left)}>Left</button>
+              <button onClick={() => saveResult(fight.key, fight.right)}>Right</button>
+            </div>
+          ))}
+        </>
+      )}
+
+      <p>{message}</p>
     </main>
   );
 }
