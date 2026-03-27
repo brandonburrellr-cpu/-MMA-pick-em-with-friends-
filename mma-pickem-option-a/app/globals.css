@@ -1,0 +1,29 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background: #0b0b0f; color: #f5f5f5; }
+a { color: inherit; }
+button, input, select { font: inherit; }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.hero { display: grid; gap: 16px; grid-template-columns: 1.4fr 1fr; }
+.card { background: #15151c; border: 1px solid #272733; border-radius: 18px; padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+.badge { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #d90f2d; font-size: 12px; font-weight: 700; }
+.subtle { color: #b8b8c7; }
+.grid { display: grid; gap: 14px; }
+.grid-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+.grid-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.event-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.event-card { cursor: pointer; transition: transform .15s ease, border-color .15s ease; }
+.event-card:hover { transform: translateY(-2px); border-color: #55556b; }
+.event-card.active { border-color: #d90f2d; background: #1b1014; }
+.fight-card { padding: 16px; border-radius: 16px; border: 1px solid #2b2b39; background: #111118; }
+.fighter-row { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; margin-top: 12px; }
+.fighter-btn { border: 1px solid #353547; background: #1a1a24; color: white; padding: 14px; border-radius: 14px; cursor: pointer; font-weight: 700; }
+.fighter-btn.selected { border-color: #d90f2d; background: #420f18; }
+.input, .select { width: 100%; background: #0f0f15; color: #fff; border: 1px solid #333345; border-radius: 12px; padding: 12px 14px; }
+.button { background: #d90f2d; color: #fff; border: none; border-radius: 12px; padding: 12px 16px; cursor: pointer; font-weight: 700; }
+.button.secondary { background: #272733; }
+.button:disabled { opacity: .55; cursor: not-allowed; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #2a2a35; }
+.notice { padding: 12px 14px; border-radius: 12px; background: #211a0f; border: 1px solid #5f4d22; color: #f2daa4; }
+.success { background: #102216; border-color: #235633; color: #bae4c4; }
+@media (max-width: 860px) { .hero, .grid-3, .grid-2 { grid-template-columns: 1fr; } .container { padding: 16px; } }
