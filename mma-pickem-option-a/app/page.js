@@ -10,21 +10,22 @@ function formatDate(value) {
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
   });
 }
 
 function scoreSubmission(submission, results) {
   let score = 0;
   for (const [fightKey, winner] of Object.entries(results || {})) {
-    if (submission.picks?.[fightKey] === winner) score += 1;
+    if (submission?.picks?.[fightKey] === winner) score += 1;
   }
   return score;
 }
 
 export default function HomePage() {
   const supabase = getSupabase();
-  const [selectedEventId, setSelectedEventId] = useState(EVENTS[0].id);
+
+  const [selectedEventId, setSelectedEventId] = useState(EVENTS[0]?.id ?? '');
   const [playerName, setPlayerName] = useState('');
   const [picks, setPicks] = useState({});
   const [submissions, setSubmissions] = useState([]);
@@ -37,7 +38,7 @@ export default function HomePage() {
     [selectedEventId]
   );
 
-  const locked = new Date() >= new Date(selectedEvent.date);
+  const locked = selectedEvent ? new Date() >= new Date(selectedEvent.date) : false;
 
   async function loadEventData(eventId) {
     if (!supabase) {
@@ -47,36 +48,38 @@ export default function HomePage() {
     }
 
     setLoading(true);
-    const [{ data: subs, error: subsError }, { data: res, error: resError }] = await Promise.all([
-      supabase
-        .from('submissions')
-        .select('*')
-        .eq('event_id', eventId)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('results')
-        .select('*')
-        .eq('event_id', eventId)
-    ]);
+    setMessage('');
+
+    const [{ data: subs, error: subsError }, { data: res, error: resError }] =
+      await Promise.all([
+        supabase
+          .from('submissions')
+          .select('*')
+          .eq('event_id', eventId)
+          .order('player_name', { ascending: true }),
+        supabase.from('results').select('*').eq('event_id', eventId),
+      ]);
 
     if (subsError || resError) {
-      setMessage('Could not load picks yet. Check your Supabase setup.');
-      setSubmissions([]);
-      setResults({});
-    } else {
-      setSubmissions(subs || []);
-      const nextResults = {};
-      (res || []).forEach((row) => {
-        nextResults[row.fight_key] = row.winner;
-      });
-      setResults(nextResults);
-      setMessage('');
+      setMessage('Could not load picks or results.');
+      setLoading(false);
+      return;
     }
+
+    const nextResults = {};
+    for (const row of res || []) {
+      nextResults[row.fight_key] = row.winner;
+    }
+
+    setSubmissions(subs || []);
+    setResults(nextResults);
     setLoading(false);
   }
 
   useEffect(() => {
-    loadEventData(selectedEventId);
+    if (selectedEventId) {
+      loadEventData(selectedEventId);
+    }
   }, [selectedEventId]);
 
   function chooseWinner(fightKey, fighter) {
@@ -86,16 +89,20 @@ export default function HomePage() {
 
   async function submitPicks() {
     const cleanName = playerName.trim();
+
     if (!cleanName) {
       setMessage('Enter your name first.');
       return;
     }
+
     if (!supabase) {
       setMessage('Add Supabase keys first.');
       return;
     }
+
     const requiredKeys = selectedEvent.fights.map((_, index) => `fight_${index + 1}`);
     const complete = requiredKeys.every((key) => picks[key]);
+
     if (!complete) {
       setMessage('Pick a winner for every fight.');
       return;
@@ -104,11 +111,11 @@ export default function HomePage() {
     const payload = {
       event_id: selectedEvent.id,
       player_name: cleanName,
-      picks
+      picks,
     };
 
     const { error } = await supabase.from('submissions').upsert(payload, {
-      onConflict: 'event_id,player_name'
+      onConflict: 'event_id,player_name',
     });
 
     if (error) {
@@ -125,13 +132,17 @@ export default function HomePage() {
       setMessage('Add Supabase keys first.');
       return;
     }
-    const { error } = await supabase.from('results').upsert({
-      event_id: selectedEvent.id,
-      fight_key: fightKey,
-      winner
-    }, {
-      onConflict: 'event_id,fight_key'
-    });
+
+    const { error } = await supabase.from('results').upsert(
+      {
+        event_id: selectedEvent.id,
+        fight_key: fightKey,
+        winner,
+      },
+      {
+        onConflict: 'event_id,fight_key',
+      }
+    );
 
     if (error) {
       setMessage('Could not save result.');
@@ -144,147 +155,367 @@ export default function HomePage() {
   }
 
   const leaderboard = useMemo(() => {
-    return submissions
+    return [...submissions]
       .map((submission) => ({
         ...submission,
-        score: scoreSubmission(submission, results)
+        score: scoreSubmission(submission, results),
       }))
-      .sort((a, b) => b.score - a.score || new Date(a.created_at) - new Date(b.created_at));
+      .sort((a, b) => b.score - a.score || a.player_name.localeCompare(b.player_name));
   }, [submissions, results]);
 
   return (
-    <main className="container grid" style={{ gap: 24 }}>
-      <section className="hero">
-        <div className="card">
-          <div className="badge">MMA PICK'EM</div>
-          <h1 style={{ fontSize: 38, marginBottom: 8 }}>Pick the winners. Beat your friends.</h1>
-          <p className="subtle" style={{ fontSize: 18, lineHeight: 1.5 }}>
-            Choose an upcoming UFC card, click the fighter you think wins, save your picks, and let the leaderboard tally who got the most right.
-          </p>
-        </div>
-        <div className="card grid">
-          <div>
-            <div className="subtle">How it works</div>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>No login needed</div>
-          </div>
-          <div className="notice">Enter your name, make your picks, and share the site with friends after you deploy it.</div>
-          {message ? <div className={message.includes('saved') ? 'notice success' : 'notice'}>{message}</div> : null}
-        </div>
-      </section>
-
-      <section className="grid" style={{ gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Upcoming events</h2>
-        <div className="event-grid">
-          {EVENTS.map((event) => (
+    <main
+      style={{
+        minHeight: '100vh',
+        background: '#050816',
+        color: '#fff',
+        padding: '32px 20px',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}
+    >
+      <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '2fr 1.1fr',
+            gap: 16,
+            marginBottom: 24,
+          }}
+        >
+          <section
+            style={{
+              background: '#0f1328',
+              border: '1px solid #1d2242',
+              borderRadius: 20,
+              padding: 24,
+            }}
+          >
             <div
-              key={event.id}
-              className={`card event-card ${event.id === selectedEventId ? 'active' : ''}`}
-              onClick={() => {
-                setSelectedEventId(event.id);
-                setPicks({});
+              style={{
+                display: 'inline-block',
+                background: '#e11d48',
+                color: '#fff',
+                fontSize: 12,
+                fontWeight: 700,
+                padding: '6px 10px',
+                borderRadius: 999,
+                marginBottom: 16,
               }}
             >
-              <div className="subtle">{formatDate(event.date)}</div>
-              <div style={{ fontSize: 22, fontWeight: 700, margin: '8px 0' }}>{event.title}</div>
-              <div className="subtle">{event.venue}</div>
-              <div style={{ marginTop: 12 }}>{event.fights.length} fights</div>
+              MMA PICK&apos;EM
             </div>
-          ))}
-        </div>
-      </section>
 
-      <section className="grid grid-2">
-        <div className="card grid">
-          <div>
-            <h2 style={{ margin: '0 0 6px' }}>{selectedEvent.title}</h2>
-            <div className="subtle">{selectedEvent.venue} · {formatDate(selectedEvent.date)}</div>
-            <div style={{ marginTop: 8 }} className={locked ? 'notice' : 'notice success'}>
+            <h1 style={{ fontSize: 28, lineHeight: 1.15, margin: 0, marginBottom: 14 }}>
+              Pick the winners. Beat your friends.
+            </h1>
+
+            <p style={{ color: '#b7bfdc', margin: 0, maxWidth: 650 }}>
+              Choose an upcoming UFC card, click the fighter you think wins, save your picks,
+              and let the leaderboard tally who got the most right.
+            </p>
+          </section>
+
+          <section
+            style={{
+              background: '#0f1328',
+              border: '1px solid #1d2242',
+              borderRadius: 20,
+              padding: 24,
+            }}
+          >
+            <div style={{ fontSize: 14, color: '#b7bfdc', marginBottom: 4 }}>How it works</div>
+            <h2 style={{ fontSize: 18, marginTop: 0, marginBottom: 16 }}>No login needed</h2>
+
+            <div
+              style={{
+                background: '#2b1f08',
+                border: '1px solid #5a4314',
+                color: '#f5d58b',
+                padding: 14,
+                borderRadius: 12,
+                marginBottom: 12,
+              }}
+            >
+              Enter your name, make your picks, and share the site with friends after you deploy it.
+            </div>
+
+            {message && (
+              <div
+                style={{
+                  background: message.toLowerCase().includes('saved')
+                    ? '#0f3321'
+                    : '#2b1f08',
+                  border: message.toLowerCase().includes('saved')
+                    ? '1px solid #1b6d45'
+                    : '1px solid #5a4314',
+                  color: message.toLowerCase().includes('saved') ? '#9be3bc' : '#f5d58b',
+                  padding: 14,
+                  borderRadius: 12,
+                }}
+              >
+                {message}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <h2 style={{ marginBottom: 12 }}>Upcoming events</h2>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+            gap: 14,
+            marginBottom: 18,
+          }}
+        >
+          {EVENTS.map((event) => {
+            const active = event.id === selectedEventId;
+            return (
+              <button
+                key={event.id}
+                onClick={() => setSelectedEventId(event.id)}
+                style={{
+                  textAlign: 'left',
+                  background: '#10152b',
+                  border: active ? '1px solid #c81e4b' : '1px solid #1d2242',
+                  borderRadius: 18,
+                  padding: 16,
+                  color: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ color: '#b7bfdc', fontSize: 13, marginBottom: 10 }}>
+                  {formatDate(event.date)}
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.15, marginBottom: 8 }}>
+                  {event.name}
+                </div>
+                <div style={{ color: '#b7bfdc', fontSize: 14, marginBottom: 10 }}>
+                  {event.location}
+                </div>
+                <div style={{ fontSize: 14 }}>{event.fights.length} fights</div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.25fr 1fr',
+            gap: 18,
+            alignItems: 'start',
+          }}
+        >
+          <section
+            style={{
+              background: '#0f1328',
+              border: '1px solid #1d2242',
+              borderRadius: 20,
+              padding: 18,
+            }}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: 6 }}>{selectedEvent.name}</h2>
+            <div style={{ color: '#b7bfdc', marginBottom: 12 }}>
+              {selectedEvent.location} · {formatDate(selectedEvent.date)}
+            </div>
+
+            <div
+              style={{
+                background: locked ? '#3a230d' : '#0f3321',
+                color: locked ? '#f3c281' : '#9be3bc',
+                border: locked ? '1px solid #714114' : '1px solid #1b6d45',
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 12,
+              }}
+            >
               {locked ? 'Picks are locked for this card.' : 'Picks are open for this card.'}
             </div>
-          </div>
 
-          <div className="grid" style={{ gap: 12 }}>
             <input
-              className="input"
-              placeholder="Enter your name"
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Enter your name"
+              style={{
+                width: '100%',
+                background: '#090d1c',
+                color: '#fff',
+                border: '1px solid #1d2242',
+                borderRadius: 10,
+                padding: '12px 14px',
+                marginBottom: 14,
+                outline: 'none',
+              }}
             />
+
             {selectedEvent.fights.map((fight, index) => {
               const fightKey = `fight_${index + 1}`;
+              const selectedWinner = picks[fightKey];
               return (
-                <div className="fight-card" key={fightKey}>
-                  <div className="subtle">Fight {index + 1}</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>{fight[0]} vs. {fight[1]}</div>
-                  <div className="fighter-row">
-                    {fight.map((fighter) => (
-                      <button
-                        key={fighter}
-                        className={`fighter-btn ${picks[fightKey] === fighter ? 'selected' : ''}`}
-                        onClick={() => chooseWinner(fightKey, fighter)}
-                        disabled={locked}
-                      >
-                        {fighter}
-                      </button>
-                    ))}
+                <div
+                  key={fightKey}
+                  style={{
+                    background: '#0b1022',
+                    border: '1px solid #1d2242',
+                    borderRadius: 16,
+                    padding: 14,
+                    marginBottom: 12,
+                  }}
+                >
+                  <div style={{ color: '#b7bfdc', marginBottom: 6 }}>Fight {index + 1}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
+                    {fight.red} vs. {fight.blue}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    {[fight.red, fight.blue].map((fighter) => {
+                      const active = selectedWinner === fighter;
+                      return (
+                        <button
+                          key={fighter}
+                          onClick={() => chooseWinner(fightKey, fighter)}
+                          disabled={locked}
+                          style={{
+                            background: active ? '#89142e' : '#151a32',
+                            color: '#fff',
+                            border: active ? '1px solid #e11d48' : '1px solid #2a3158',
+                            borderRadius: 12,
+                            padding: '12px 10px',
+                            fontWeight: 700,
+                            cursor: locked ? 'not-allowed' : 'pointer',
+                            opacity: locked ? 0.7 : 1,
+                          }}
+                        >
+                          {fighter}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               );
             })}
-            <button className="button" onClick={submitPicks} disabled={locked}>Save my picks</button>
-          </div>
-        </div>
 
-        <div className="grid" style={{ gap: 16 }}>
-          <div className="card">
-            <h2 style={{ marginTop: 0 }}>Leaderboard</h2>
-            {loading ? <div className="subtle">Loading...</div> : leaderboard.length === 0 ? <div className="subtle">No picks saved yet.</div> : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Score</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <button
+              onClick={submitPicks}
+              disabled={locked || loading}
+              style={{
+                width: '100%',
+                background: locked ? '#3a3f5e' : '#e11d48',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 12,
+                padding: '14px 16px',
+                fontWeight: 800,
+                cursor: locked || loading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {loading ? 'Loading...' : 'Save my picks'}
+            </button>
+          </section>
+
+          <div style={{ display: 'grid', gap: 18 }}>
+            <section
+              style={{
+                background: '#0f1328',
+                border: '1px solid #1d2242',
+                borderRadius: 20,
+                padding: 18,
+              }}
+            >
+              <h2 style={{ marginTop: 0 }}>Leaderboard</h2>
+
+              {leaderboard.length === 0 ? (
+                <div style={{ color: '#b7bfdc' }}>No picks saved yet.</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 10 }}>
                   {leaderboard.map((entry, index) => (
-                    <tr key={`${entry.event_id}-${entry.player_name}`}>
-                      <td>{index + 1}</td>
-                      <td>{entry.player_name}</td>
-                      <td>{entry.score}</td>
-                    </tr>
+                    <div
+                      key={`${entry.event_id}-${entry.player_name}`}
+                      style={{
+                        background: '#0b1022',
+                        border: '1px solid #1d2242',
+                        borderRadius: 14,
+                        padding: 12,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 700 }}>
+                          #{index + 1} {entry.player_name}
+                        </div>
+                      </div>
+                      <div style={{ color: '#f5d58b', fontWeight: 800 }}>{entry.score} pts</div>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div className="card grid" style={{ gap: 12 }}>
-            <h2 style={{ margin: 0 }}>Admin results</h2>
-            <div className="subtle">After the fights, click the official winner for each matchup to tally the scores.</div>
-            {selectedEvent.fights.map((fight, index) => {
-              const fightKey = `fight_${index + 1}`;
-              return (
-                <div key={fightKey} className="fight-card">
-                  <div style={{ fontWeight: 700 }}>{fight[0]} vs. {fight[1]}</div>
-                  <div className="fighter-row">
-                    {fight.map((fighter) => (
-                      <button
-                        key={fighter}
-                        className={`fighter-btn ${results[fightKey] === fighter ? 'selected' : ''}`}
-                        onClick={() => saveResult(fightKey, fighter)}
-                      >
-                        {fighter}
-                      </button>
-                    ))}
-                  </div>
                 </div>
-              );
-            })}
+              )}
+            </section>
+
+            <section
+              style={{
+                background: '#0f1328',
+                border: '1px solid #1d2242',
+                borderRadius: 20,
+                padding: 18,
+              }}
+            >
+              <h2 style={{ marginTop: 0 }}>Admin results</h2>
+              <p style={{ color: '#b7bfdc', marginTop: 0 }}>
+                After the fights, click the official winner for each matchup to tally the scores.
+              </p>
+
+              {selectedEvent.fights.map((fight, index) => {
+                const fightKey = `fight_${index + 1}`;
+                const selectedResult = results[fightKey];
+
+                return (
+                  <div
+                    key={fightKey}
+                    style={{
+                      background: '#0b1022',
+                      border: '1px solid #1d2242',
+                      borderRadius: 16,
+                      padding: 14,
+                      marginBottom: 12,
+                    }}
+                  >
+                    <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+                      {fight.red} vs. {fight.blue}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      {[fight.red, fight.blue].map((fighter) => {
+                        const active = selectedResult === fighter;
+                        return (
+                          <button
+                            key={fighter}
+                            onClick={() => saveResult(fightKey, fighter)}
+                            style={{
+                              background: active ? '#89142e' : '#151a32',
+                              color: '#fff',
+                              border: active ? '1px solid #e11d48' : '1px solid #2a3158',
+                              borderRadius: 12,
+                              padding: '12px 10px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {fighter}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
           </div>
         </div>
-      </section>
+      </div>
     </main>
   );
 }
