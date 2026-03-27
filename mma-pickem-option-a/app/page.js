@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 import { getSupabase } from '../lib/supabase';
 import { EVENTS } from '../lib/events';
@@ -28,6 +29,10 @@ function normalizeFights(event) {
     key: fight?.id || `fight_${index + 1}`,
     left: fight?.red || '',
     right: fight?.blue || '',
+    leftImage: fight?.redImage || '/fighters/placeholder.jpg',
+    rightImage: fight?.blueImage || '/fighters/placeholder.jpg',
+    leftEspn: fight?.redEspn || '#',
+    rightEspn: fight?.blueEspn || '#',
   }));
 }
 
@@ -37,6 +42,79 @@ function scoreSubmission(submission, results) {
     if (submission?.picks?.[fightKey] === winner) score += 1;
   }
   return score;
+}
+
+function FighterButton({
+  name,
+  image,
+  espnUrl,
+  active,
+  disabled,
+  onPick,
+}) {
+  return (
+    <div
+      style={{
+        background: active ? '#89142e' : '#151a32',
+        border: active ? '1px solid #e11d48' : '1px solid #2a3158',
+        borderRadius: 14,
+        overflow: 'hidden',
+        opacity: disabled ? 0.7 : 1,
+      }}
+    >
+      <a
+        href={espnUrl && espnUrl !== '#' ? espnUrl : undefined}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: 10,
+          textDecoration: 'none',
+          color: '#fff',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        <div
+          style={{
+            position: 'relative',
+            width: 52,
+            height: 52,
+            borderRadius: 999,
+            overflow: 'hidden',
+            flexShrink: 0,
+            background: '#0b1022',
+          }}
+        >
+          <Image
+            src={image}
+            alt={name}
+            fill
+            sizes="52px"
+            style={{ objectFit: 'cover' }}
+          />
+        </div>
+        <div style={{ fontWeight: 700, lineHeight: 1.15 }}>{name}</div>
+      </a>
+
+      <button
+        onClick={onPick}
+        disabled={disabled}
+        style={{
+          width: '100%',
+          background: 'transparent',
+          color: '#fff',
+          border: 'none',
+          padding: '12px 10px',
+          fontWeight: 700,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+        }}
+      >
+        Pick {name}
+      </button>
+    </div>
+  );
 }
 
 export default function HomePage() {
@@ -287,8 +365,8 @@ export default function HomePage() {
             </h1>
 
             <p style={{ color: '#b7bfdc', margin: 0, maxWidth: 650 }}>
-              Choose an upcoming UFC card, click the fighter you think wins, save your picks, and
-              let the leaderboard tally who got the most right.
+              Choose an upcoming UFC card, click the fighter photo to open ESPN, then lock in your
+              pick below each photo.
             </p>
           </section>
 
@@ -313,8 +391,7 @@ export default function HomePage() {
                 marginBottom: 12,
               }}
             >
-              Enter your name, make your picks, and share the site with friends after you deploy
-              it.
+              Click a fighter photo to open ESPN. Click the pick button to choose that fighter.
             </div>
 
             {message && (
@@ -448,29 +525,23 @@ export default function HomePage() {
                     {fight.left} vs. {fight.right}
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    {[fight.left, fight.right].map((fighter, fighterIndex) => (
-                      <button
-                        key={`${fight.key}-${fighterIndex}`}
-                        onClick={() => chooseWinner(fight.key, fighter)}
-                        disabled={locked}
-                        style={{
-                          background: selectedWinner === fighter ? '#89142e' : '#151a32',
-                          color: '#fff',
-                          border:
-                            selectedWinner === fighter
-                              ? '1px solid #e11d48'
-                              : '1px solid #2a3158',
-                          borderRadius: 12,
-                          padding: '12px 10px',
-                          fontWeight: 700,
-                          cursor: locked ? 'not-allowed' : 'pointer',
-                          opacity: locked ? 0.7 : 1,
-                        }}
-                      >
-                        {fighter}
-                      </button>
-                    ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <FighterButton
+                      name={fight.left}
+                      image={fight.leftImage}
+                      espnUrl={fight.leftEspn}
+                      active={selectedWinner === fight.left}
+                      disabled={locked}
+                      onPick={() => chooseWinner(fight.key, fight.left)}
+                    />
+                    <FighterButton
+                      name={fight.right}
+                      image={fight.rightImage}
+                      espnUrl={fight.rightEspn}
+                      active={selectedWinner === fight.right}
+                      disabled={locked}
+                      onPick={() => chooseWinner(fight.key, fight.right)}
+                    />
                   </div>
                 </div>
               );
