@@ -5,13 +5,82 @@ import { getSupabase } from '../lib/supabase';
 import { EVENTS } from '../lib/events';
 
 function formatDate(value) {
-  return new Date(value).toLocaleString([], {
+  if (!value) return 'Date TBD';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+
+  return d.toLocaleString([], {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function getEventName(event) {
+  return (
+    event?.name ||
+    event?.title ||
+    event?.headline ||
+    event?.mainEvent ||
+    'Fight Card'
+  );
+}
+
+function getEventLocation(event) {
+  return (
+    event?.location ||
+    event?.venue ||
+    event?.city ||
+    event?.arena ||
+    ''
+  );
+}
+
+function getEventDate(event) {
+  return event?.date || event?.datetime || event?.startsAt || event?.start_time || '';
+}
+
+function getFightKey(index, fight) {
+  return (
+    fight?.key ||
+    fight?.id ||
+    `fight_${index + 1}`
+  );
+}
+
+function getFightLeft(fight) {
+  return (
+    fight?.red ||
+    fight?.fighter1 ||
+    fight?.fighterA ||
+    fight?.left ||
+    fight?.a ||
+    fight?.home ||
+    ''
+  );
+}
+
+function getFightRight(fight) {
+  return (
+    fight?.blue ||
+    fight?.fighter2 ||
+    fight?.fighterB ||
+    fight?.right ||
+    fight?.b ||
+    fight?.away ||
+    ''
+  );
+}
+
+function normalizeFights(event) {
+  const fights = Array.isArray(event?.fights) ? event.fights : [];
+  return fights.map((fight, index) => ({
+    key: getFightKey(index, fight),
+    left: getFightLeft(fight),
+    right: getFightRight(fight),
+  }));
 }
 
 function scoreSubmission(submission, results) {
@@ -25,50 +94,64 @@ function scoreSubmission(submission, results) {
 export default function HomePage() {
   const supabase = getSupabase();
 
-  const [selectedEventId, setSelectedEventId] = useState(EVENTS[0]?.id ?? '');
+  const firstEventId = EVENTS?.[0]?.id || EVENTS?.[0]?.slug || 'event_1';
+
+  const [selectedEventId, setSelectedEventId] = useState(firstEventId);
   const [playerName, setPlayerName] = useState('');
   const [picks, setPicks] = useState({});
   const [submissions, setSubmissions] = useState([]);
   const [results, setResults] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  const selectedEvent = useMemo(
-    () => EVENTS.find((event) => event.id === selectedEventId) || EVENTS[0],
-    [selectedEventId]
-  );
+  const selectedEvent = useMemo(() => {
+    return (
+      EVENTS.find((event) => (event.id || event.slug || 'event_1') === selectedEventId) ||
+      EVENTS[0] ||
+      {}
+    );
+  }, [selectedEventId]);
 
-  const locked = selectedEvent ? new Date() >= new Date(selectedEvent.date) : false;
+  const eventDate = getEventDate(selectedEvent);
+  const eventName = getEventName(selectedEvent);
+  const eventLocation = getEventLocation(selectedEvent);
+  const fights = normalizeFights(selectedEvent);
+  const locked = eventDate ? new Date() >= new Date(eventDate) : false;
 
   async function loadEventData(eventId) {
     if (!supabase) {
-      setLoading(false);
-      setMessage('Add your Supabase URL and anon key to make shared picks work.');
+      setMessage('Add Supabase keys first.');
       return;
     }
 
     setLoading(true);
     setMessage('');
 
+    const submissionsQuery = supabase
+      .from('submissions')
+      .select('*')
+      .eq('event_id', eventId);
+
+    const resultsQuery = supabase
+      .from('results')
+      .select('*')
+      .eq('event_id', eventId);
+
     const [{ data: subs, error: subsError }, { data: res, error: resError }] =
-      await Promise.all([
-        supabase
-          .from('submissions')
-          .select('*')
-          .eq('event_id', eventId)
-          .order('player_name', { ascending: true }),
-        supabase.from('results').select('*').eq('event_id', eventId),
-      ]);
+      await Promise.all([submissionsQuery, resultsQuery]);
 
     if (subsError || resError) {
       setMessage('Could not load picks or results.');
+      setSubmissions([]);
+      setResults({});
       setLoading(false);
       return;
     }
 
     const nextResults = {};
     for (const row of res || []) {
-      nextResults[row.fight_key] = row.winner;
+      const key = row.fight_key || row.fightId || row.fight_id;
+      if (key) nextResults[key] = row.winner;
     }
 
     setSubmissions(subs || []);
@@ -100,16 +183,14 @@ export default function HomePage() {
       return;
     }
 
-    const requiredKeys = selectedEvent.fights.map((_, index) => `fight_${index + 1}`);
-    const complete = requiredKeys.every((key) => picks[key]);
-
+    const complete = fights.every((fight) => picks[fight.key]);
     if (!complete) {
       setMessage('Pick a winner for every fight.');
       return;
     }
 
     const payload = {
-      event_id: selectedEvent.id,
+      event_id: selectedEventId,
       player_name: cleanName,
       picks,
     };
@@ -124,7 +205,7 @@ export default function HomePage() {
     }
 
     setMessage('Picks saved.');
-    await loadEventData(selectedEvent.id);
+    await loadEventData(selectedEventId);
   }
 
   async function saveResult(fightKey, winner) {
@@ -135,13 +216,11 @@ export default function HomePage() {
 
     const { error } = await supabase.from('results').upsert(
       {
-        event_id: selectedEvent.id,
+        event_id: selectedEventId,
         fight_key: fightKey,
         winner,
       },
-      {
-        onConflict: 'event_id,fight_key',
-      }
+      { onConflict: 'event_id,fight_key' }
     );
 
     if (error) {
@@ -149,9 +228,8 @@ export default function HomePage() {
       return;
     }
 
-    setResults((prev) => ({ ...prev, [fightKey]: winner }));
     setMessage('Result saved.');
-    await loadEventData(selectedEvent.id);
+    await loadEventData(selectedEventId);
   }
 
   const leaderboard = useMemo(() => {
@@ -160,7 +238,7 @@ export default function HomePage() {
         ...submission,
         score: scoreSubmission(submission, results),
       }))
-      .sort((a, b) => b.score - a.score || a.player_name.localeCompare(b.player_name));
+      .sort((a, b) => b.score - a.score);
   }, [submissions, results]);
 
   return (
@@ -269,12 +347,15 @@ export default function HomePage() {
             marginBottom: 18,
           }}
         >
-          {EVENTS.map((event) => {
-            const active = event.id === selectedEventId;
+          {EVENTS.map((event, index) => {
+            const eventId = event.id || event.slug || `event_${index + 1}`;
+            const active = eventId === selectedEventId;
+            const eventFights = normalizeFights(event);
+
             return (
               <button
-                key={event.id}
-                onClick={() => setSelectedEventId(event.id)}
+                key={eventId}
+                onClick={() => setSelectedEventId(eventId)}
                 style={{
                   textAlign: 'left',
                   background: '#10152b',
@@ -286,15 +367,15 @@ export default function HomePage() {
                 }}
               >
                 <div style={{ color: '#b7bfdc', fontSize: 13, marginBottom: 10 }}>
-                  {formatDate(event.date)}
+                  {formatDate(getEventDate(event))}
                 </div>
                 <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.15, marginBottom: 8 }}>
-                  {event.name}
+                  {getEventName(event)}
                 </div>
                 <div style={{ color: '#b7bfdc', fontSize: 14, marginBottom: 10 }}>
-                  {event.location}
+                  {getEventLocation(event)}
                 </div>
-                <div style={{ fontSize: 14 }}>{event.fights.length} fights</div>
+                <div style={{ fontSize: 14 }}>{eventFights.length} fights</div>
               </button>
             );
           })}
@@ -316,9 +397,9 @@ export default function HomePage() {
               padding: 18,
             }}
           >
-            <h2 style={{ marginTop: 0, marginBottom: 6 }}>{selectedEvent.name}</h2>
+            <h2 style={{ marginTop: 0, marginBottom: 6 }}>{eventName}</h2>
             <div style={{ color: '#b7bfdc', marginBottom: 12 }}>
-              {selectedEvent.location} · {formatDate(selectedEvent.date)}
+              {[eventLocation, formatDate(eventDate)].filter(Boolean).join(' · ')}
             </div>
 
             <div
@@ -350,12 +431,11 @@ export default function HomePage() {
               }}
             />
 
-            {selectedEvent.fights.map((fight, index) => {
-              const fightKey = `fight_${index + 1}`;
-              const selectedWinner = picks[fightKey];
+            {fights.map((fight, index) => {
+              const selectedWinner = picks[fight.key];
               return (
                 <div
-                  key={fightKey}
+                  key={fight.key}
                   style={{
                     background: '#0b1022',
                     border: '1px solid #1d2242',
@@ -366,32 +446,32 @@ export default function HomePage() {
                 >
                   <div style={{ color: '#b7bfdc', marginBottom: 6 }}>Fight {index + 1}</div>
                   <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-                    {fight.red} vs. {fight.blue}
+                    {fight.left} vs. {fight.right}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    {[fight.red, fight.blue].map((fighter) => {
-                      const active = selectedWinner === fighter;
-                      return (
-                        <button
-                          key={fighter}
-                          onClick={() => chooseWinner(fightKey, fighter)}
-                          disabled={locked}
-                          style={{
-                            background: active ? '#89142e' : '#151a32',
-                            color: '#fff',
-                            border: active ? '1px solid #e11d48' : '1px solid #2a3158',
-                            borderRadius: 12,
-                            padding: '12px 10px',
-                            fontWeight: 700,
-                            cursor: locked ? 'not-allowed' : 'pointer',
-                            opacity: locked ? 0.7 : 1,
-                          }}
-                        >
-                          {fighter}
-                        </button>
-                      );
-                    })}
+                    {[fight.left, fight.right].map((fighter) => (
+                      <button
+                        key={fighter}
+                        onClick={() => chooseWinner(fight.key, fighter)}
+                        disabled={locked}
+                        style={{
+                          background: selectedWinner === fighter ? '#89142e' : '#151a32',
+                          color: '#fff',
+                          border:
+                            selectedWinner === fighter
+                              ? '1px solid #e11d48'
+                              : '1px solid #2a3158',
+                          borderRadius: 12,
+                          padding: '12px 10px',
+                          fontWeight: 700,
+                          cursor: locked ? 'not-allowed' : 'pointer',
+                          opacity: locked ? 0.7 : 1,
+                        }}
+                      >
+                        {fighter}
+                      </button>
+                    ))}
                   </div>
                 </div>
               );
@@ -440,13 +520,10 @@ export default function HomePage() {
                         padding: 12,
                         display: 'flex',
                         justifyContent: 'space-between',
-                        gap: 12,
                       }}
                     >
-                      <div>
-                        <div style={{ fontWeight: 700 }}>
-                          #{index + 1} {entry.player_name}
-                        </div>
+                      <div style={{ fontWeight: 700 }}>
+                        #{index + 1} {entry.player_name}
                       </div>
                       <div style={{ color: '#f5d58b', fontWeight: 800 }}>{entry.score} pts</div>
                     </div>
@@ -468,13 +545,11 @@ export default function HomePage() {
                 After the fights, click the official winner for each matchup to tally the scores.
               </p>
 
-              {selectedEvent.fights.map((fight, index) => {
-                const fightKey = `fight_${index + 1}`;
-                const selectedResult = results[fightKey];
-
+              {fights.map((fight) => {
+                const selectedResult = results[fight.key];
                 return (
                   <div
-                    key={fightKey}
+                    key={fight.key}
                     style={{
                       background: '#0b1022',
                       border: '1px solid #1d2242',
@@ -484,30 +559,30 @@ export default function HomePage() {
                     }}
                   >
                     <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
-                      {fight.red} vs. {fight.blue}
+                      {fight.left} vs. {fight.right}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      {[fight.red, fight.blue].map((fighter) => {
-                        const active = selectedResult === fighter;
-                        return (
-                          <button
-                            key={fighter}
-                            onClick={() => saveResult(fightKey, fighter)}
-                            style={{
-                              background: active ? '#89142e' : '#151a32',
-                              color: '#fff',
-                              border: active ? '1px solid #e11d48' : '1px solid #2a3158',
-                              borderRadius: 12,
-                              padding: '12px 10px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {fighter}
-                          </button>
-                        );
-                      })}
+                      {[fight.left, fight.right].map((fighter) => (
+                        <button
+                          key={fighter}
+                          onClick={() => saveResult(fight.key, fighter)}
+                          style={{
+                            background: selectedResult === fighter ? '#89142e' : '#151a32',
+                            color: '#fff',
+                            border:
+                              selectedResult === fighter
+                                ? '1px solid #e11d48'
+                                : '1px solid #2a3158',
+                            borderRadius: 12,
+                            padding: '12px 10px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {fighter}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 );
