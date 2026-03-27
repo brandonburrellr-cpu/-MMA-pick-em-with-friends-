@@ -19,7 +19,7 @@ function formatDate(value) {
 }
 
 function getEventId(event, index) {
-  return event?.id || event?.slug || `event_${index + 1}`;
+  return event?.id || `event_${index + 1}`;
 }
 
 function normalizeFights(event) {
@@ -74,44 +74,46 @@ export default function HomePage() {
     setLoading(true);
     setMessage('');
 
-    const submissionsResponse = await supabase
-      .from('submissions')
-      .select('*')
-      .eq('event_id', eventId);
+    try {
+      const submissionsResponse = await supabase
+        .from('submissions')
+        .select('*')
+        .eq('event_id', eventId);
 
-    const resultsResponse = await supabase
-      .from('results')
-      .select('*')
-      .eq('event_id', eventId);
+      const resultsResponse = await supabase
+        .from('results')
+        .select('*')
+        .eq('event_id', eventId);
 
-    if (submissionsResponse.error || resultsResponse.error) {
-      const details = [
-        submissionsResponse.error?.message,
-        resultsResponse.error?.message,
-      ]
-        .filter(Boolean)
-        .join(' | ');
+      if (submissionsResponse.error || resultsResponse.error) {
+        const details = [
+          submissionsResponse.error?.message,
+          resultsResponse.error?.message,
+        ]
+          .filter(Boolean)
+          .join(' | ');
 
-      console.error('Load error:', {
-        submissionsError: submissionsResponse.error,
-        resultsError: resultsResponse.error,
-      });
+        setMessage(`Could not load picks or results: ${details || 'unknown error'}`);
+        setSubmissions([]);
+        setResults({});
+        setLoading(false);
+        return;
+      }
 
-      setMessage(`Could not load picks or results: ${details || 'unknown error'}`);
+      const nextResults = {};
+      for (const row of resultsResponse.data || []) {
+        nextResults[row.fight_key] = row.winner;
+      }
+
+      setSubmissions(submissionsResponse.data || []);
+      setResults(nextResults);
+      setLoading(false);
+    } catch (error) {
+      setMessage(`Could not load picks or results: ${error?.message || 'Failed to fetch'}`);
       setSubmissions([]);
       setResults({});
       setLoading(false);
-      return;
     }
-
-    const nextResults = {};
-    for (const row of resultsResponse.data || []) {
-      nextResults[row.fight_key] = row.winner;
-    }
-
-    setSubmissions(submissionsResponse.data || []);
-    setResults(nextResults);
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -133,6 +135,11 @@ export default function HomePage() {
       return;
     }
 
+    if (locked) {
+      setMessage('Picks are locked for this card.');
+      return;
+    }
+
     if (!supabase) {
       setMessage('Supabase client not available. Check env vars.');
       return;
@@ -150,20 +157,21 @@ export default function HomePage() {
       picks,
     };
 
-    const response = await supabase.from('submissions').upsert(payload, {
-      onConflict: 'event_id,player_name',
-    });
+    try {
+      const response = await supabase.from('submissions').upsert(payload, {
+        onConflict: 'event_id,player_name',
+      });
 
-    if (response.error) {
-      console.error('Save picks error:', response.error);
-      setMessage(
-        `Could not save picks: ${response.error.message || 'unknown error'}`
-      );
-      return;
+      if (response.error) {
+        setMessage(`Could not save picks: ${response.error.message || 'unknown error'}`);
+        return;
+      }
+
+      setMessage('Picks saved.');
+      await loadEventData(selectedEventId);
+    } catch (error) {
+      setMessage(`Could not save picks: ${error?.message || 'Failed to fetch'}`);
     }
-
-    setMessage('Picks saved.');
-    await loadEventData(selectedEventId);
   }
 
   async function saveResult(fightKey, winner) {
@@ -172,25 +180,26 @@ export default function HomePage() {
       return;
     }
 
-    const response = await supabase.from('results').upsert(
-      {
-        event_id: selectedEventId,
-        fight_key: fightKey,
-        winner,
-      },
-      { onConflict: 'event_id,fight_key' }
-    );
-
-    if (response.error) {
-      console.error('Save result error:', response.error);
-      setMessage(
-        `Could not save result: ${response.error.message || 'unknown error'}`
+    try {
+      const response = await supabase.from('results').upsert(
+        {
+          event_id: selectedEventId,
+          fight_key: fightKey,
+          winner,
+        },
+        { onConflict: 'event_id,fight_key' }
       );
-      return;
-    }
 
-    setMessage('Result saved.');
-    await loadEventData(selectedEventId);
+      if (response.error) {
+        setMessage(`Could not save result: ${response.error.message || 'unknown error'}`);
+        return;
+      }
+
+      setMessage('Result saved.');
+      await loadEventData(selectedEventId);
+    } catch (error) {
+      setMessage(`Could not save result: ${error?.message || 'Failed to fetch'}`);
+    }
   }
 
   const leaderboard = useMemo(() => {
@@ -199,8 +208,37 @@ export default function HomePage() {
         ...submission,
         score: scoreSubmission(submission, results),
       }))
-      .sort((a, b) => b.score - a.score || String(a.player_name).localeCompare(String(b.player_name)));
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return String(a.player_name).localeCompare(String(b.player_name));
+      });
   }, [submissions, results]);
+
+  function messageStyles(text) {
+    const lower = String(text || '').toLowerCase();
+
+    if (lower.includes('saved')) {
+      return {
+        background: '#0f3321',
+        border: '1px solid #1b6d45',
+        color: '#9be3bc',
+      };
+    }
+
+    if (lower.includes('locked')) {
+      return {
+        background: '#3a230d',
+        border: '1px solid #714114',
+        color: '#f3c281',
+      };
+    }
+
+    return {
+      background: '#2b1f08',
+      border: '1px solid #5a4314',
+      color: '#f5d58b',
+    };
+  }
 
   return (
     <main
@@ -249,8 +287,8 @@ export default function HomePage() {
             </h1>
 
             <p style={{ color: '#b7bfdc', margin: 0, maxWidth: 650 }}>
-              Choose an upcoming UFC card, click the fighter you think wins, save your picks,
-              and let the leaderboard tally who got the most right.
+              Choose an upcoming UFC card, click the fighter you think wins, save your picks, and
+              let the leaderboard tally who got the most right.
             </p>
           </section>
 
@@ -275,19 +313,14 @@ export default function HomePage() {
                 marginBottom: 12,
               }}
             >
-              Enter your name, make your picks, and share the site with friends after you deploy it.
+              Enter your name, make your picks, and share the site with friends after you deploy
+              it.
             </div>
 
             {message && (
               <div
                 style={{
-                  background: message.toLowerCase().includes('saved')
-                    ? '#0f3321'
-                    : '#2b1f08',
-                  border: message.toLowerCase().includes('saved')
-                    ? '1px solid #1b6d45'
-                    : '1px solid #5a4314',
-                  color: message.toLowerCase().includes('saved') ? '#9be3bc' : '#f5d58b',
+                  ...messageStyles(message),
                   padding: 14,
                   borderRadius: 12,
                   wordBreak: 'break-word',
@@ -398,6 +431,7 @@ export default function HomePage() {
 
             {fights.map((fight, index) => {
               const selectedWinner = picks[fight.key];
+
               return (
                 <div
                   key={fight.key}
@@ -456,7 +490,7 @@ export default function HomePage() {
                 cursor: locked || loading ? 'not-allowed' : 'pointer',
               }}
             >
-              {loading ? 'Loading...' : 'Save my picks'}
+              {locked ? 'Picks locked' : loading ? 'Loading...' : 'Save my picks'}
             </button>
           </section>
 
@@ -513,6 +547,7 @@ export default function HomePage() {
 
               {fights.map((fight) => {
                 const selectedResult = results[fight.key];
+
                 return (
                   <div
                     key={fight.key}
