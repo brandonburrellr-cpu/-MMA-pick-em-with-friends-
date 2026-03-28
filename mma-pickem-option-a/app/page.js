@@ -60,7 +60,7 @@ function scoreSubmission(submission, results) {
 function messageStyles(text) {
   const lower = String(text || '').toLowerCase();
 
-  if (lower.includes('saved')) {
+  if (lower.includes('saved') || lower.includes('cleared')) {
     return {
       background: 'rgba(16, 185, 129, 0.18)',
       border: '1px solid rgba(52, 211, 153, 0.5)',
@@ -352,6 +352,27 @@ export default function HomePage() {
     loadData();
   }
 
+  async function clearResult(fightKey) {
+    if (!supabase) {
+      setMessage('Supabase client not available.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('results')
+      .delete()
+      .eq('event_id', selectedEventId)
+      .eq('fight_key', fightKey);
+
+    if (error) {
+      setMessage(`Could not clear result: ${error.message}`);
+      return;
+    }
+
+    setMessage('Result cleared.');
+    loadData();
+  }
+
   const leaderboard = useMemo(() => {
     return [...submissions]
       .map((submission) => ({
@@ -388,18 +409,18 @@ export default function HomePage() {
                 Pick the winners. Beat your friends.
               </h1>
               <p style={{ color: '#dbeafe', margin: 0, maxWidth: 700, fontSize: 16 }}>
-                Manual results now support Draw, and scores update automatically whenever results change.
+                Admin mode now supports Draw and Clear Result if you click something by mistake.
               </p>
             </section>
 
             <section style={{ background: 'linear-gradient(135deg, rgba(30,41,59,0.72), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 26, padding: 24 }}>
               <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>How it works</div>
               <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16, fontWeight: 900 }}>
-                Draw supported
+                Fix mistakes easily
               </h2>
 
               <div style={{ background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.3)', color: '#fdba74', padding: 14, borderRadius: 14, marginBottom: 12, fontWeight: 700 }}>
-                In admin mode, you can now mark a fight as Draw. That result will show in the app and no one gets a point for it.
+                In admin mode you can choose Fighter 1, Fighter 2, Draw, or Clear Result.
               </div>
 
               {message && (
@@ -714,7 +735,7 @@ export default function HomePage() {
                 <section style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.22)', borderRadius: 26, padding: 18 }}>
                   <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Admin results</h2>
                   <p style={{ color: '#cbd5e1', marginTop: 0 }}>
-                    After the fights, click the official result for each matchup.
+                    After the fights, click the official result for each matchup. Use Clear Result if you clicked one by mistake.
                   </p>
 
                   {fights.map((fight) => {
@@ -735,7 +756,7 @@ export default function HomePage() {
                           {fight.left} vs. {fight.right}
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
                           {[fight.left, fight.right, 'Draw'].map((resultOption, resultIndex) => (
                             <button
                               key={`${fight.key}-result-${resultIndex}`}
@@ -763,6 +784,21 @@ export default function HomePage() {
                               {resultOption}
                             </button>
                           ))}
+
+                          <button
+                            onClick={() => clearResult(fight.key)}
+                            style={{
+                              background: 'rgba(71,85,105,0.9)',
+                              color: '#fff',
+                              border: '1px solid rgba(148,163,184,0.35)',
+                              borderRadius: 12,
+                              padding: '12px 10px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Clear Result
+                          </button>
                         </div>
                       </div>
                     );
