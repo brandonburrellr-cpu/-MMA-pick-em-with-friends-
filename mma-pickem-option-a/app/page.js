@@ -145,27 +145,11 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        boxShadow: active
-          ? '0 0 0 1px rgba(244,114,182,0.25), 0 10px 30px rgba(236,72,153,0.18)'
-          : '0 10px 30px rgba(0,0,0,0.25)',
         opacity: disabled ? 0.75 : 1,
-        backdropFilter: 'blur(12px)',
       }}
     >
-      <div
-        style={{
-          padding: 16,
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 900,
-            fontSize: 17,
-            lineHeight: 1.2,
-            marginBottom: 10,
-          }}
-        >
+      <div style={{ padding: 16, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ fontWeight: 900, fontSize: 17, lineHeight: 1.2, marginBottom: 10 }}>
           {name}
         </div>
 
@@ -216,9 +200,7 @@ export default function HomePage() {
   const supabase = getSupabase();
 
   const [isAdmin, setIsAdmin] = useState(false);
-  const [selectedEventId, setSelectedEventId] = useState(
-    EVENTS?.[0]?.id || 'event_1'
-  );
+  const [selectedEventId, setSelectedEventId] = useState(EVENTS?.[0]?.id || 'event_1');
   const [playerName, setPlayerName] = useState('');
   const [picks, setPicks] = useState({});
   const [submissions, setSubmissions] = useState([]);
@@ -233,10 +215,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setNowMs(Date.now());
-    }, 30000);
-
+    const timer = setInterval(() => setNowMs(Date.now()), 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -286,12 +265,7 @@ export default function HomePage() {
       .channel(`submissions-${selectedEventId}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'submissions',
-          filter: `event_id=eq.${selectedEventId}`,
-        },
+        { event: '*', schema: 'public', table: 'submissions', filter: `event_id=eq.${selectedEventId}` },
         () => loadData()
       )
       .subscribe();
@@ -300,12 +274,7 @@ export default function HomePage() {
       .channel(`results-${selectedEventId}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'results',
-          filter: `event_id=eq.${selectedEventId}`,
-        },
+        { event: '*', schema: 'public', table: 'results', filter: `event_id=eq.${selectedEventId}` },
         () => loadData()
       )
       .subscribe();
@@ -346,11 +315,7 @@ export default function HomePage() {
     }
 
     const { error } = await supabase.from('submissions').upsert(
-      {
-        event_id: selectedEventId,
-        player_name: cleanName,
-        picks,
-      },
+      { event_id: selectedEventId, player_name: cleanName, picks },
       { onConflict: 'event_id,player_name' }
     );
 
@@ -412,104 +377,33 @@ export default function HomePage() {
         backgroundAttachment: 'fixed',
       }}
     >
-      <div
-        style={{
-          minHeight: '100vh',
-          backdropFilter: 'blur(2px)',
-          padding: '32px 20px',
-        }}
-      >
+      <div style={{ minHeight: '100vh', backdropFilter: 'blur(2px)', padding: '32px 20px' }}>
         <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '2fr 1.1fr',
-              gap: 18,
-              marginBottom: 28,
-            }}
-          >
-            <section
-              style={{
-                background: 'linear-gradient(135deg, rgba(30,41,59,0.7), rgba(17,24,39,0.72))',
-                border: '1px solid rgba(99,102,241,0.22)',
-                borderRadius: 26,
-                padding: 28,
-                boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
-                backdropFilter: 'blur(14px)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'inline-block',
-                  background: 'linear-gradient(90deg, #f43f5e, #ec4899)',
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: 900,
-                  padding: '7px 12px',
-                  borderRadius: 999,
-                  marginBottom: 16,
-                  letterSpacing: 0.4,
-                }}
-              >
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: 18, marginBottom: 28 }}>
+            <section style={{ background: 'linear-gradient(135deg, rgba(30,41,59,0.7), rgba(17,24,39,0.72))', border: '1px solid rgba(99,102,241,0.22)', borderRadius: 26, padding: 28 }}>
+              <div style={{ display: 'inline-block', background: 'linear-gradient(90deg, #f43f5e, #ec4899)', color: '#fff', fontSize: 12, fontWeight: 900, padding: '7px 12px', borderRadius: 999, marginBottom: 16 }}>
                 MMA PICK&apos;EM
               </div>
-
-              <h1
-                style={{
-                  fontSize: 30,
-                  lineHeight: 1.08,
-                  margin: 0,
-                  marginBottom: 14,
-                  fontWeight: 900,
-                }}
-              >
+              <h1 style={{ fontSize: 30, lineHeight: 1.08, margin: 0, marginBottom: 14, fontWeight: 900 }}>
                 Pick the winners. Beat your friends.
               </h1>
-
               <p style={{ color: '#dbeafe', margin: 0, maxWidth: 700, fontSize: 16 }}>
-                Picks lock at 3:00 PM Pacific. After lock, clicking a leaderboard name reveals that player’s picks.
+                Manual results now support Draw, and scores update automatically whenever results change.
               </p>
             </section>
 
-            <section
-              style={{
-                background: 'linear-gradient(135deg, rgba(30,41,59,0.72), rgba(17,24,39,0.74))',
-                border: '1px solid rgba(168,85,247,0.25)',
-                borderRadius: 26,
-                padding: 24,
-                boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
-                backdropFilter: 'blur(14px)',
-              }}
-            >
+            <section style={{ background: 'linear-gradient(135deg, rgba(30,41,59,0.72), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 26, padding: 24 }}>
               <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>How it works</div>
               <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16, fontWeight: 900 }}>
-                Pacific lock time
+                Draw supported
               </h2>
 
-              <div
-                style={{
-                  background: 'rgba(251,146,60,0.14)',
-                  border: '1px solid rgba(251,146,60,0.3)',
-                  color: '#fdba74',
-                  padding: 14,
-                  borderRadius: 14,
-                  marginBottom: 12,
-                  fontWeight: 700,
-                }}
-              >
-                At 3:00 PM Pacific, picks lock. After that, anybody can click a name on the leaderboard to see their picks.
+              <div style={{ background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.3)', color: '#fdba74', padding: 14, borderRadius: 14, marginBottom: 12, fontWeight: 700 }}>
+                In admin mode, you can now mark a fight as Draw. That result will show in the app and no one gets a point for it.
               </div>
 
               {message && (
-                <div
-                  style={{
-                    ...messageStyles(message),
-                    padding: 14,
-                    borderRadius: 14,
-                    wordBreak: 'break-word',
-                    fontWeight: 700,
-                  }}
-                >
+                <div style={{ ...messageStyles(message), padding: 14, borderRadius: 14, wordBreak: 'break-word', fontWeight: 700 }}>
                   {message}
                 </div>
               )}
@@ -518,14 +412,7 @@ export default function HomePage() {
 
           <h2 style={{ marginBottom: 14, fontSize: 18, fontWeight: 900 }}>Upcoming events</h2>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-              gap: 14,
-              marginBottom: 20,
-            }}
-          >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 20 }}>
             {EVENTS.map((event, index) => {
               const eventId = getEventId(event, index);
               const active = eventId === selectedEventId;
@@ -551,10 +438,6 @@ export default function HomePage() {
                     padding: 16,
                     color: '#fff',
                     cursor: 'pointer',
-                    boxShadow: active
-                      ? '0 10px 30px rgba(236,72,153,0.18)'
-                      : '0 10px 30px rgba(0,0,0,0.2)',
-                    backdropFilter: 'blur(10px)',
                   }}
                 >
                   <div style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 10 }}>
@@ -567,31 +450,15 @@ export default function HomePage() {
                     {event?.location || ''}
                   </div>
                   <div style={{ fontSize: 13, color: '#fde68a', fontWeight: 800 }}>
-                    Locks: {eventLockTime ? formatPacificDate(eventLockTime) : '3:00 PM PT'}
+                    Locks: {eventLockTime ? `${formatPacificDate(eventLockTime)} PT` : '3:00 PM PT'}
                   </div>
                 </button>
               );
             })}
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1.35fr 1fr',
-              gap: 18,
-              alignItems: 'start',
-            }}
-          >
-            <section
-              style={{
-                background: 'linear-gradient(135deg, rgba(15,23,42,0.75), rgba(17,24,39,0.72))',
-                border: '1px solid rgba(99,102,241,0.2)',
-                borderRadius: 26,
-                padding: 20,
-                boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
-                backdropFilter: 'blur(14px)',
-              }}
-            >
+          <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: 18, alignItems: 'start' }}>
+            <section style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.75), rgba(17,24,39,0.72))', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 26, padding: 20 }}>
               <h2 style={{ marginTop: 0, marginBottom: 6, fontSize: 22, fontWeight: 900 }}>
                 {selectedEvent?.name || 'Fight Card'}
               </h2>
@@ -604,13 +471,9 @@ export default function HomePage() {
 
               <div
                 style={{
-                  background: locked
-                    ? 'rgba(245,158,11,0.18)'
-                    : 'rgba(34,197,94,0.16)',
+                  background: locked ? 'rgba(245,158,11,0.18)' : 'rgba(34,197,94,0.16)',
                   color: locked ? '#fde68a' : '#bbf7d0',
-                  border: locked
-                    ? '1px solid rgba(251,191,36,0.4)'
-                    : '1px solid rgba(74,222,128,0.35)',
+                  border: locked ? '1px solid rgba(251,191,36,0.4)' : '1px solid rgba(74,222,128,0.35)',
                   borderRadius: 14,
                   padding: 13,
                   marginBottom: 14,
@@ -618,7 +481,7 @@ export default function HomePage() {
                 }}
               >
                 {locked
-                  ? 'Picks are locked. Click leaderboard names to see what each player picked.'
+                  ? 'Picks are locked. Results and scores update automatically when winners are saved.'
                   : 'Picks are open for this card.'}
               </div>
 
@@ -641,6 +504,7 @@ export default function HomePage() {
 
               {fights.map((fight, index) => {
                 const selectedWinner = picks[fight.key];
+                const officialWinner = results[fight.key];
 
                 return (
                   <div
@@ -656,9 +520,31 @@ export default function HomePage() {
                     <div style={{ color: '#c4b5fd', marginBottom: 6, fontWeight: 700 }}>
                       Fight {index + 1}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 12 }}>
+                    <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 8 }}>
                       {fight.left} vs. {fight.right}
                     </div>
+
+                    {officialWinner && (
+                      <div
+                        style={{
+                          marginBottom: 12,
+                          background:
+                            officialWinner === 'Draw'
+                              ? 'rgba(245, 158, 11, 0.14)'
+                              : 'rgba(34,197,94,0.14)',
+                          border:
+                            officialWinner === 'Draw'
+                              ? '1px solid rgba(251,191,36,0.3)'
+                              : '1px solid rgba(74,222,128,0.3)',
+                          color: officialWinner === 'Draw' ? '#fde68a' : '#bbf7d0',
+                          padding: '10px 12px',
+                          borderRadius: 12,
+                          fontWeight: 800,
+                        }}
+                      >
+                        Official result: {officialWinner}
+                      </div>
+                    )}
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                       <FighterCard
@@ -695,7 +581,6 @@ export default function HomePage() {
                   fontWeight: 900,
                   fontSize: 15,
                   cursor: locked ? 'not-allowed' : 'pointer',
-                  boxShadow: locked ? 'none' : '0 12px 30px rgba(236,72,153,0.3)',
                 }}
               >
                 {locked ? 'Picks locked at 3 PM Pacific' : 'Save my picks'}
@@ -703,16 +588,7 @@ export default function HomePage() {
             </section>
 
             <div style={{ display: 'grid', gap: 18 }}>
-              <section
-                style={{
-                  background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))',
-                  border: '1px solid rgba(99,102,241,0.2)',
-                  borderRadius: 26,
-                  padding: 18,
-                  boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
-                  backdropFilter: 'blur(14px)',
-                }}
-              >
+              <section style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 26, padding: 18 }}>
                 <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Leaderboard</h2>
 
                 {leaderboard.length === 0 ? (
@@ -808,11 +684,18 @@ export default function HomePage() {
                                         style={{
                                           fontSize: 13,
                                           marginTop: 6,
-                                          color: correct ? '#86efac' : '#fca5a5',
+                                          color:
+                                            result === 'Draw'
+                                              ? '#fde68a'
+                                              : correct
+                                              ? '#86efac'
+                                              : '#fca5a5',
                                           fontWeight: 700,
                                         }}
                                       >
-                                        {correct ? 'Correct' : 'Wrong'} · Result: {result}
+                                        {result === 'Draw'
+                                          ? 'Official result: Draw'
+                                          : `${correct ? 'Correct' : 'Wrong'} · Result: ${result}`}
                                       </div>
                                     )}
                                   </div>
@@ -828,19 +711,10 @@ export default function HomePage() {
               </section>
 
               {isAdmin && (
-                <section
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))',
-                    border: '1px solid rgba(168,85,247,0.22)',
-                    borderRadius: 26,
-                    padding: 18,
-                    boxShadow: '0 20px 50px rgba(0,0,0,0.35)',
-                    backdropFilter: 'blur(14px)',
-                  }}
-                >
+                <section style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.22)', borderRadius: 26, padding: 18 }}>
                   <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Admin results</h2>
                   <p style={{ color: '#cbd5e1', marginTop: 0 }}>
-                    After the fights, click the official winner for each matchup to tally the scores.
+                    After the fights, click the official result for each matchup.
                   </p>
 
                   {fights.map((fight) => {
@@ -861,20 +735,24 @@ export default function HomePage() {
                           {fight.left} vs. {fight.right}
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                          {[fight.left, fight.right].map((fighter, fighterIndex) => (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                          {[fight.left, fight.right, 'Draw'].map((resultOption, resultIndex) => (
                             <button
-                              key={`${fight.key}-result-${fighterIndex}`}
-                              onClick={() => saveResult(fight.key, fighter)}
+                              key={`${fight.key}-result-${resultIndex}`}
+                              onClick={() => saveResult(fight.key, resultOption)}
                               style={{
                                 background:
-                                  selectedResult === fighter
-                                    ? 'linear-gradient(90deg, #f43f5e, #ec4899)'
+                                  selectedResult === resultOption
+                                    ? resultOption === 'Draw'
+                                      ? 'linear-gradient(90deg, #f59e0b, #eab308)'
+                                      : 'linear-gradient(90deg, #f43f5e, #ec4899)'
                                     : 'rgba(30,41,59,0.8)',
                                 color: '#fff',
                                 border:
-                                  selectedResult === fighter
-                                    ? '1px solid rgba(244,114,182,0.7)'
+                                  selectedResult === resultOption
+                                    ? resultOption === 'Draw'
+                                      ? '1px solid rgba(251,191,36,0.7)'
+                                      : '1px solid rgba(244,114,182,0.7)'
                                     : '1px solid rgba(99,102,241,0.18)',
                                 borderRadius: 12,
                                 padding: '12px 10px',
@@ -882,7 +760,7 @@ export default function HomePage() {
                                 cursor: 'pointer',
                               }}
                             >
-                              {fighter}
+                              {resultOption}
                             </button>
                           ))}
                         </div>
