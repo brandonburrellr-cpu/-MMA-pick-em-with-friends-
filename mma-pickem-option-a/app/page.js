@@ -67,7 +67,24 @@ function messageStyles(text) {
   };
 }
 
+function getLockTime(eventDateValue) {
+  if (!eventDateValue) return null;
+  const base = new Date(eventDateValue);
+  if (Number.isNaN(base.getTime())) return null;
+
+  const lockTime = new Date(base);
+  lockTime.setHours(15, 0, 0, 0); // 3:00 PM local time
+  return lockTime;
+}
+
 function FighterCard({ name, espnUrl, active, disabled, onPick }) {
+  const canOpen = espnUrl && espnUrl !== '#';
+
+  function openEspn() {
+    if (!canOpen) return;
+    window.open(espnUrl, '_blank', 'noopener,noreferrer');
+  }
+
   return (
     <div
       style={{
@@ -88,15 +105,9 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
         backdropFilter: 'blur(12px)',
       }}
     >
-      <a
-        href={espnUrl && espnUrl !== '#' ? espnUrl : undefined}
-        target="_blank"
-        rel="noreferrer"
+      <div
         style={{
           padding: 16,
-          textDecoration: 'none',
-          color: '#fff',
-          display: 'block',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}
       >
@@ -105,29 +116,36 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
             fontWeight: 900,
             fontSize: 17,
             lineHeight: 1.2,
-            marginBottom: 8,
+            marginBottom: 10,
           }}
         >
           {name}
         </div>
 
-        <div
+        <button
+          type="button"
+          onClick={openEspn}
+          disabled={!canOpen}
           style={{
             display: 'inline-block',
             fontSize: 12,
             fontWeight: 800,
-            color: '#bfdbfe',
-            background: 'rgba(59,130,246,0.14)',
-            border: '1px solid rgba(96,165,250,0.25)',
-            padding: '6px 10px',
+            color: canOpen ? '#bfdbfe' : '#94a3b8',
+            background: canOpen ? 'rgba(59,130,246,0.14)' : 'rgba(71,85,105,0.2)',
+            border: canOpen
+              ? '1px solid rgba(96,165,250,0.25)'
+              : '1px solid rgba(100,116,139,0.2)',
+            padding: '8px 12px',
             borderRadius: 999,
+            cursor: canOpen ? 'pointer' : 'not-allowed',
           }}
         >
-          View ESPN Profile →
-        </div>
-      </a>
+          {canOpen ? 'Open ESPN Profile →' : 'No ESPN Profile'}
+        </button>
+      </div>
 
       <button
+        type="button"
         onClick={onPick}
         disabled={disabled}
         style={{
@@ -175,7 +193,8 @@ export default function HomePage() {
   }, [selectedEventId]);
 
   const fights = normalizeFights(selectedEvent);
-  const locked = selectedEvent?.date ? new Date() >= new Date(selectedEvent.date) : false;
+  const lockTime = getLockTime(selectedEvent?.date);
+  const locked = lockTime ? new Date() >= lockTime : false;
 
   async function loadData() {
     if (!supabase) return;
@@ -255,7 +274,7 @@ export default function HomePage() {
     }
 
     if (locked) {
-      setMessage('Picks are locked for this card.');
+      setMessage('Picks lock at 3:00 PM for this card.');
       return;
     }
 
@@ -392,8 +411,7 @@ export default function HomePage() {
               </h1>
 
               <p style={{ color: '#dbeafe', margin: 0, maxWidth: 700, fontSize: 16 }}>
-                A brighter, bolder fight-night board. Check each fighter’s ESPN profile, make your
-                picks, and track the leaderboard live as results come in.
+                Open each fighter’s ESPN page, make your picks, and track the leaderboard live as results come in.
               </p>
             </section>
 
@@ -409,7 +427,7 @@ export default function HomePage() {
             >
               <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>How it works</div>
               <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16, fontWeight: 900 }}>
-                Live and colorful
+                Picks lock at 3 PM
               </h2>
 
               <div
@@ -423,7 +441,7 @@ export default function HomePage() {
                   fontWeight: 700,
                 }}
               >
-                Use ESPN links for fighter research, then lock in your picks below.
+                Every fight card locks automatically at 3:00 PM on the event date.
               </div>
 
               {message && (
@@ -455,6 +473,7 @@ export default function HomePage() {
             {EVENTS.map((event, index) => {
               const eventId = getEventId(event, index);
               const active = eventId === selectedEventId;
+              const eventLockTime = getLockTime(event?.date);
 
               return (
                 <button
@@ -491,8 +510,8 @@ export default function HomePage() {
                   <div style={{ color: '#bfdbfe', fontSize: 14, marginBottom: 10 }}>
                     {event?.location || ''}
                   </div>
-                  <div style={{ fontSize: 14, color: '#f9a8d4', fontWeight: 800 }}>
-                    {event?.fights?.length || 0} fights
+                  <div style={{ fontSize: 13, color: '#fde68a', fontWeight: 800 }}>
+                    Locks: {eventLockTime ? formatDate(eventLockTime) : '3:00 PM'}
                   </div>
                 </button>
               );
@@ -520,8 +539,11 @@ export default function HomePage() {
               <h2 style={{ marginTop: 0, marginBottom: 6, fontSize: 22, fontWeight: 900 }}>
                 {selectedEvent?.name || 'Fight Card'}
               </h2>
-              <div style={{ color: '#bfdbfe', marginBottom: 14 }}>
+              <div style={{ color: '#bfdbfe', marginBottom: 8 }}>
                 {[selectedEvent?.location, formatDate(selectedEvent?.date)].filter(Boolean).join(' · ')}
+              </div>
+              <div style={{ color: '#fde68a', marginBottom: 14, fontWeight: 800 }}>
+                Locks at: {lockTime ? formatDate(lockTime) : '3:00 PM'}
               </div>
 
               <div
@@ -618,7 +640,7 @@ export default function HomePage() {
                   boxShadow: locked ? 'none' : '0 12px 30px rgba(236,72,153,0.3)',
                 }}
               >
-                {locked ? 'Picks locked' : 'Save my picks'}
+                {locked ? 'Picks locked at 3 PM' : 'Save my picks'}
               </button>
             </section>
 
