@@ -18,6 +18,22 @@ function formatDate(value) {
   });
 }
 
+function formatPacificDate(value) {
+  if (!value) return 'Date TBD';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d);
+}
+
 function getEventId(event, index) {
   return event?.id || `event_${index + 1}`;
 }
@@ -67,14 +83,45 @@ function messageStyles(text) {
   };
 }
 
-function getLockTime(eventDateValue) {
+function getPacificLockTime(eventDateValue) {
   if (!eventDateValue) return null;
   const base = new Date(eventDateValue);
   if (Number.isNaN(base.getTime())) return null;
 
-  const lockTime = new Date(base);
-  lockTime.setHours(15, 0, 0, 0); // 3:00 PM local time
-  return lockTime;
+  const pacificDateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(base);
+
+  const year = pacificDateParts.find((p) => p.type === 'year')?.value;
+  const month = pacificDateParts.find((p) => p.type === 'month')?.value;
+  const day = pacificDateParts.find((p) => p.type === 'day')?.value;
+
+  if (!year || !month || !day) return null;
+
+  const pacificGuessUtc = new Date(`${year}-${month}-${day}T15:00:00-08:00`);
+  const pacificGuessDst = new Date(`${year}-${month}-${day}T15:00:00-07:00`);
+
+  const guessUtcParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(pacificGuessUtc);
+
+  const guessUtcHour = guessUtcParts.find((p) => p.type === 'hour')?.value;
+  const guessUtcMinute = guessUtcParts.find((p) => p.type === 'minute')?.value;
+
+  if (guessUtcHour === '15' && guessUtcMinute === '00') {
+    return pacificGuessUtc;
+  }
+
+  return pacificGuessDst;
 }
 
 function FighterCard({ name, espnUrl, active, disabled, onPick }) {
@@ -178,10 +225,19 @@ export default function HomePage() {
   const [results, setResults] = useState({});
   const [message, setMessage] = useState('');
   const [expandedPlayer, setExpandedPlayer] = useState(null);
+  const [nowMs, setNowMs] = useState(Date.now());
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setIsAdmin(params.get('admin') === 'true');
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 30000);
+
+    return () => clearInterval(timer);
   }, []);
 
   const selectedEvent = useMemo(() => {
@@ -193,8 +249,8 @@ export default function HomePage() {
   }, [selectedEventId]);
 
   const fights = normalizeFights(selectedEvent);
-  const lockTime = getLockTime(selectedEvent?.date);
-  const locked = lockTime ? new Date() >= lockTime : false;
+  const lockTime = getPacificLockTime(selectedEvent?.date);
+  const locked = lockTime ? nowMs >= lockTime.getTime() : false;
 
   async function loadData() {
     if (!supabase) return;
@@ -274,7 +330,7 @@ export default function HomePage() {
     }
 
     if (locked) {
-      setMessage('Picks lock at 3:00 PM for this card.');
+      setMessage('Picks lock at 3:00 PM Pacific for this card.');
       return;
     }
 
@@ -411,7 +467,7 @@ export default function HomePage() {
               </h1>
 
               <p style={{ color: '#dbeafe', margin: 0, maxWidth: 700, fontSize: 16 }}>
-                Open each fighter’s ESPN page, make your picks, and track the leaderboard live as results come in.
+                Picks lock at 3:00 PM Pacific. After lock, clicking a leaderboard name reveals that player’s picks.
               </p>
             </section>
 
@@ -427,7 +483,7 @@ export default function HomePage() {
             >
               <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>How it works</div>
               <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16, fontWeight: 900 }}>
-                Picks lock at 3 PM
+                Pacific lock time
               </h2>
 
               <div
@@ -441,7 +497,7 @@ export default function HomePage() {
                   fontWeight: 700,
                 }}
               >
-                Every fight card locks automatically at 3:00 PM on the event date.
+                At 3:00 PM Pacific, picks lock. After that, anybody can click a name on the leaderboard to see their picks.
               </div>
 
               {message && (
@@ -473,7 +529,7 @@ export default function HomePage() {
             {EVENTS.map((event, index) => {
               const eventId = getEventId(event, index);
               const active = eventId === selectedEventId;
-              const eventLockTime = getLockTime(event?.date);
+              const eventLockTime = getPacificLockTime(event?.date);
 
               return (
                 <button
@@ -511,7 +567,7 @@ export default function HomePage() {
                     {event?.location || ''}
                   </div>
                   <div style={{ fontSize: 13, color: '#fde68a', fontWeight: 800 }}>
-                    Locks: {eventLockTime ? formatDate(eventLockTime) : '3:00 PM'}
+                    Locks: {eventLockTime ? formatPacificDate(eventLockTime) : '3:00 PM PT'}
                   </div>
                 </button>
               );
@@ -543,7 +599,7 @@ export default function HomePage() {
                 {[selectedEvent?.location, formatDate(selectedEvent?.date)].filter(Boolean).join(' · ')}
               </div>
               <div style={{ color: '#fde68a', marginBottom: 14, fontWeight: 800 }}>
-                Locks at: {lockTime ? formatDate(lockTime) : '3:00 PM'}
+                Locks at: {lockTime ? `${formatPacificDate(lockTime)} PT` : '3:00 PM PT'}
               </div>
 
               <div
@@ -561,7 +617,9 @@ export default function HomePage() {
                   fontWeight: 800,
                 }}
               >
-                {locked ? 'Picks are locked for this card.' : 'Picks are open for this card.'}
+                {locked
+                  ? 'Picks are locked. Click leaderboard names to see what each player picked.'
+                  : 'Picks are open for this card.'}
               </div>
 
               <input
@@ -640,7 +698,7 @@ export default function HomePage() {
                   boxShadow: locked ? 'none' : '0 12px 30px rgba(236,72,153,0.3)',
                 }}
               >
-                {locked ? 'Picks locked at 3 PM' : 'Save my picks'}
+                {locked ? 'Picks locked at 3 PM Pacific' : 'Save my picks'}
               </button>
             </section>
 
@@ -662,10 +720,12 @@ export default function HomePage() {
                 ) : (
                   <div style={{ display: 'grid', gap: 10 }}>
                     {leaderboard.map((entry, index) => {
-                      const isOpen = expandedPlayer === `${entry.event_id}-${entry.player_name}`;
+                      const playerKey = `${entry.event_id}-${entry.player_name}`;
+                      const isOpen = expandedPlayer === playerKey;
+
                       return (
                         <div
-                          key={`${entry.event_id}-${entry.player_name}`}
+                          key={playerKey}
                           style={{
                             background: 'rgba(15,23,42,0.78)',
                             border: '1px solid rgba(99,102,241,0.14)',
@@ -674,13 +734,10 @@ export default function HomePage() {
                           }}
                         >
                           <button
-                            onClick={() =>
-                              locked
-                                ? setExpandedPlayer(
-                                    isOpen ? null : `${entry.event_id}-${entry.player_name}`
-                                  )
-                                : null
-                            }
+                            onClick={() => {
+                              if (!locked) return;
+                              setExpandedPlayer(isOpen ? null : playerKey);
+                            }}
                             style={{
                               width: '100%',
                               background: 'transparent',
@@ -702,9 +759,13 @@ export default function HomePage() {
                             </div>
                           </button>
 
-                          {locked && (
+                          {locked ? (
                             <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 8 }}>
-                              Click to {isOpen ? 'hide' : 'show'} picks
+                              Click the name to {isOpen ? 'hide' : 'see'} what they picked
+                            </div>
+                          ) : (
+                            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 8 }}>
+                              Picks become visible at 3:00 PM Pacific
                             </div>
                           )}
 
