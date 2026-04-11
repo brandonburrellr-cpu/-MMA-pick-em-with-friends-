@@ -38,6 +38,10 @@ function getEventId(event, index) {
   return event?.id || `event_${index + 1}`;
 }
 
+function normalizeName(value = '') {
+  return value.trim().toLowerCase();
+}
+
 function normalizeFights(event) {
   const fights = Array.isArray(event?.fights) ? event.fights : [];
   return fights.map((fight, index) => ({
@@ -102,27 +106,24 @@ function getPacificLockTime(eventDateValue) {
 
   if (!year || !month || !day) return null;
 
-  const pacificGuessUtc = new Date(`${year}-${month}-${day}T15:00:00-08:00`);
-  const pacificGuessDst = new Date(`${year}-${month}-${day}T15:00:00-07:00`);
+  const standardGuess = new Date(`${year}-${month}-${day}T15:00:00-08:00`);
+  const daylightGuess = new Date(`${year}-${month}-${day}T15:00:00-07:00`);
 
-  const guessUtcParts = new Intl.DateTimeFormat('en-CA', {
+  const standardParts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Los_Angeles',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
-  }).formatToParts(pacificGuessUtc);
+  }).formatToParts(standardGuess);
 
-  const guessUtcHour = guessUtcParts.find((p) => p.type === 'hour')?.value;
-  const guessUtcMinute = guessUtcParts.find((p) => p.type === 'minute')?.value;
+  const standardHour = standardParts.find((p) => p.type === 'hour')?.value;
+  const standardMinute = standardParts.find((p) => p.type === 'minute')?.value;
 
-  if (guessUtcHour === '15' && guessUtcMinute === '00') {
-    return pacificGuessUtc;
+  if (standardHour === '15' && standardMinute === '00') {
+    return standardGuess;
   }
 
-  return pacificGuessDst;
+  return daylightGuess;
 }
 
 function FighterCard({ name, espnUrl, active, disabled, onPick }) {
@@ -288,6 +289,67 @@ function FightSection({ title, fights, picks, results, locked, chooseWinner }) {
   );
 }
 
+function PicksReveal({ entry, fights, results }) {
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        display: 'grid',
+        gap: 8,
+        borderTop: '1px solid rgba(99,102,241,0.12)',
+        paddingTop: 12,
+      }}
+    >
+      {fights.map((fight, fightIndex) => {
+        const pick = entry?.picks?.[fight.key];
+        const result = results?.[fight.key];
+        const correct = result ? pick === result : null;
+
+        return (
+          <div
+            key={`${entry.player_name}-${fight.key}`}
+            style={{
+              background: 'rgba(17,24,39,0.74)',
+              border: '1px solid rgba(99,102,241,0.12)',
+              borderRadius: 12,
+              padding: 10,
+            }}
+          >
+            <div style={{ color: '#c4b5fd', fontSize: 12, marginBottom: 4 }}>
+              {fight.card === 'main' ? 'Main Card' : 'Prelim'} · Fight {fightIndex + 1}
+            </div>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>
+              {fight.left} vs. {fight.right}
+            </div>
+            <div style={{ fontSize: 14 }}>
+              Pick: <span style={{ fontWeight: 900 }}>{pick || 'No pick'}</span>
+            </div>
+            {result && (
+              <div
+                style={{
+                  fontSize: 13,
+                  marginTop: 6,
+                  color:
+                    result === 'Draw'
+                      ? '#fde68a'
+                      : correct
+                      ? '#86efac'
+                      : '#fca5a5',
+                  fontWeight: 700,
+                }}
+              >
+                {result === 'Draw'
+                  ? 'Official result: Draw'
+                  : `${correct ? 'Correct' : 'Wrong'} · Result: ${result}`}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function HomePage() {
   const supabase = getSupabase();
 
@@ -326,18 +388,29 @@ export default function HomePage() {
   const lockTime = getPacificLockTime(selectedEvent?.date);
   const locked = lockTime ? nowMs >= lockTime.getTime() : false;
 
+  const mySavedEntry = useMemo(() => {
+    const clean = normalizeName(playerName);
+    if (!clean) return null;
+    return submissions.find((entry) => normalizeName(entry.player_name) === clean) || null;
+  }, [playerName, submissions]);
+
   async function loadData() {
     if (!supabase) return;
 
-    const { data: subs } = await supabase
+    const { data: subs, error: subsError } = await supabase
       .from('submissions')
       .select('*')
       .eq('event_id', selectedEventId);
 
-    const { data: res } = await supabase
+    const { data: res, error: resError } = await supabase
       .from('results')
       .select('*')
       .eq('event_id', selectedEventId);
+
+    if (subsError || resError) {
+      setMessage('Could not load data.');
+      return;
+    }
 
     const nextResults = {};
     (res || []).forEach((row) => {
@@ -360,7 +433,12 @@ export default function HomePage() {
       .channel(`submissions-${selectedEventId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'submissions', filter: `event_id=eq.${selectedEventId}` },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'submissions',
+          filter: `event_id=eq.${selectedEventId}`,
+        },
         () => loadData()
       )
       .subscribe();
@@ -369,7 +447,12 @@ export default function HomePage() {
       .channel(`results-${selectedEventId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'results', filter: `event_id=eq.${selectedEventId}` },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'results',
+          filter: `event_id=eq.${selectedEventId}`,
+        },
         () => loadData()
       )
       .subscribe();
@@ -410,7 +493,11 @@ export default function HomePage() {
     }
 
     const { error } = await supabase.from('submissions').upsert(
-      { event_id: selectedEventId, player_name: cleanName, picks },
+      {
+        event_id: selectedEventId,
+        player_name: cleanName,
+        picks,
+      },
       { onConflict: 'event_id,player_name' }
     );
 
@@ -420,7 +507,6 @@ export default function HomePage() {
     }
 
     setMessage('Picks saved.');
-    setExpandedPlayer(`${selectedEventId}-${cleanName}`);
     loadData();
   }
 
@@ -496,31 +582,111 @@ export default function HomePage() {
     >
       <div style={{ minHeight: '100vh', backdropFilter: 'blur(2px)', padding: '32px 20px' }}>
         <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr', gap: 18, marginBottom: 28 }}>
-            <section style={{ background: 'linear-gradient(135deg, rgba(30,41,59,0.7), rgba(17,24,39,0.72))', border: '1px solid rgba(99,102,241,0.22)', borderRadius: 26, padding: 28 }}>
-              <div style={{ display: 'inline-block', background: 'linear-gradient(90deg, #f43f5e, #ec4899)', color: '#fff', fontSize: 12, fontWeight: 900, padding: '7px 12px', borderRadius: 999, marginBottom: 16 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '2fr 1.1fr',
+              gap: 18,
+              marginBottom: 28,
+            }}
+          >
+            <section
+              style={{
+                background: 'linear-gradient(135deg, rgba(30,41,59,0.7), rgba(17,24,39,0.72))',
+                border: '1px solid rgba(99,102,241,0.22)',
+                borderRadius: 26,
+                padding: 28,
+              }}
+            >
+              <div
+                style={{
+                  display: 'inline-block',
+                  background: 'linear-gradient(90deg, #f43f5e, #ec4899)',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 900,
+                  padding: '7px 12px',
+                  borderRadius: 999,
+                  marginBottom: 16,
+                }}
+              >
                 MMA PICK&apos;EM
               </div>
-              <h1 style={{ fontSize: 30, lineHeight: 1.08, margin: 0, marginBottom: 14, fontWeight: 900 }}>
+              <h1
+                style={{
+                  fontSize: 30,
+                  lineHeight: 1.08,
+                  margin: 0,
+                  marginBottom: 14,
+                  fontWeight: 900,
+                }}
+              >
                 Pick the winners. Beat your friends.
               </h1>
               <p style={{ color: '#dbeafe', margin: 0, maxWidth: 700, fontSize: 16 }}>
-                After the card locks at 3 PM Pacific, anybody can click any saved name on the leaderboard, including their own, and see those picks.
+                After 3 PM Pacific, every saved entry gets a View Picks button so nobody has to guess where to click.
               </p>
             </section>
 
-            <section style={{ background: 'linear-gradient(135deg, rgba(30,41,59,0.72), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 26, padding: 24 }}>
+            <section
+              style={{
+                background: 'linear-gradient(135deg, rgba(30,41,59,0.72), rgba(17,24,39,0.74))',
+                border: '1px solid rgba(168,85,247,0.25)',
+                borderRadius: 26,
+                padding: 24,
+              }}
+            >
               <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>How it works</div>
               <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16, fontWeight: 900 }}>
-                Click any name after lock
+                View picks after lock
               </h2>
 
-              <div style={{ background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.3)', color: '#fdba74', padding: 14, borderRadius: 14, marginBottom: 12, fontWeight: 700 }}>
-                Once the event locks, every player name becomes clickable, including your own name, so you can see what that person picked.
+              <div
+                style={{
+                  background: 'rgba(251,146,60,0.14)',
+                  border: '1px solid rgba(251,146,60,0.3)',
+                  color: '#fdba74',
+                  padding: 14,
+                  borderRadius: 14,
+                  marginBottom: 12,
+                  fontWeight: 700,
+                }}
+              >
+                Once the card locks, use the View Picks button under any saved name.
               </div>
 
+              {locked && mySavedEntry && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedPlayer(`${mySavedEntry.event_id}-${mySavedEntry.player_name}`)
+                  }
+                  style={{
+                    width: '100%',
+                    marginBottom: 12,
+                    background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 12,
+                    padding: '12px 14px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  View my picks
+                </button>
+              )}
+
               {message && (
-                <div style={{ ...messageStyles(message), padding: 14, borderRadius: 14, wordBreak: 'break-word', fontWeight: 700 }}>
+                <div
+                  style={{
+                    ...messageStyles(message),
+                    padding: 14,
+                    borderRadius: 14,
+                    wordBreak: 'break-word',
+                    fontWeight: 700,
+                  }}
+                >
                   {message}
                 </div>
               )}
@@ -529,7 +695,14 @@ export default function HomePage() {
 
           <h2 style={{ marginBottom: 14, fontSize: 18, fontWeight: 900 }}>Upcoming events</h2>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 20 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+              gap: 14,
+              marginBottom: 20,
+            }}
+          >
             {EVENTS.map((event, index) => {
               const eventId = getEventId(event, index);
               const active = eventId === selectedEventId;
@@ -574,8 +747,22 @@ export default function HomePage() {
             })}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: 18, alignItems: 'start' }}>
-            <section style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.75), rgba(17,24,39,0.72))', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 26, padding: 20 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1.35fr 1fr',
+              gap: 18,
+              alignItems: 'start',
+            }}
+          >
+            <section
+              style={{
+                background: 'linear-gradient(135deg, rgba(15,23,42,0.75), rgba(17,24,39,0.72))',
+                border: '1px solid rgba(99,102,241,0.2)',
+                borderRadius: 26,
+                padding: 20,
+              }}
+            >
               <h2 style={{ marginTop: 0, marginBottom: 6, fontSize: 22, fontWeight: 900 }}>
                 {selectedEvent?.name || 'Fight Card'}
               </h2>
@@ -598,7 +785,7 @@ export default function HomePage() {
                 }}
               >
                 {locked
-                  ? 'Picks are locked. Click any leaderboard name to see what that person picked.'
+                  ? 'Picks are locked. View Picks buttons are now available on the right.'
                   : 'Picks are open for this card.'}
               </div>
 
@@ -659,8 +846,15 @@ export default function HomePage() {
             </section>
 
             <div style={{ display: 'grid', gap: 18 }}>
-              <section style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 26, padding: 18 }}>
-                <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Leaderboard</h2>
+              <section
+                style={{
+                  background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))',
+                  border: '1px solid rgba(99,102,241,0.2)',
+                  borderRadius: 26,
+                  padding: 18,
+                }}
+              >
+                <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Saved picks / Leaderboard</h2>
 
                 {leaderboard.length === 0 ? (
                   <div style={{ color: '#cbd5e1' }}>No picks saved yet.</div>
@@ -680,22 +874,12 @@ export default function HomePage() {
                             padding: 12,
                           }}
                         >
-                          <button
-                            onClick={() => {
-                              if (!locked) return;
-                              setExpandedPlayer(isOpen ? null : playerKey);
-                            }}
+                          <div
                             style={{
-                              width: '100%',
-                              background: 'transparent',
-                              border: 'none',
-                              color: '#fff',
                               display: 'flex',
                               justifyContent: 'space-between',
                               alignItems: 'center',
-                              padding: 0,
-                              cursor: locked ? 'pointer' : 'default',
-                              textAlign: 'left',
+                              gap: 12,
                             }}
                           >
                             <div style={{ fontWeight: 900 }}>
@@ -704,75 +888,37 @@ export default function HomePage() {
                             <div style={{ color: '#fde68a', fontWeight: 900 }}>
                               {entry.score} pts
                             </div>
-                          </button>
+                          </div>
 
-                          {locked ? (
-                            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 8 }}>
-                              Click the name to {isOpen ? 'hide' : 'see'} their picks
-                            </div>
-                          ) : (
-                            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 8 }}>
-                              Picks become visible at 3:00 PM Pacific
-                            </div>
+                          <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 8 }}>
+                            {locked
+                              ? 'Use the button below to see picks'
+                              : 'Picks become visible at 3:00 PM Pacific'}
+                          </div>
+
+                          {locked && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedPlayer(isOpen ? null : playerKey)}
+                              style={{
+                                marginTop: 10,
+                                background: isOpen
+                                  ? 'rgba(71,85,105,0.9)'
+                                  : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: 10,
+                                padding: '10px 12px',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {isOpen ? `Hide ${entry.player_name}'s picks` : `View ${entry.player_name}'s picks`}
+                            </button>
                           )}
 
                           {locked && isOpen && (
-                            <div
-                              style={{
-                                marginTop: 12,
-                                display: 'grid',
-                                gap: 8,
-                                borderTop: '1px solid rgba(99,102,241,0.12)',
-                                paddingTop: 12,
-                              }}
-                            >
-                              {fights.map((fight, fightIndex) => {
-                                const pick = entry?.picks?.[fight.key];
-                                const result = results?.[fight.key];
-                                const correct = result ? pick === result : null;
-
-                                return (
-                                  <div
-                                    key={`${entry.player_name}-${fight.key}`}
-                                    style={{
-                                      background: 'rgba(17,24,39,0.74)',
-                                      border: '1px solid rgba(99,102,241,0.12)',
-                                      borderRadius: 12,
-                                      padding: 10,
-                                    }}
-                                  >
-                                    <div style={{ color: '#c4b5fd', fontSize: 12, marginBottom: 4 }}>
-                                      {fight.card === 'main' ? 'Main Card' : 'Prelim'} · Fight {fightIndex + 1}
-                                    </div>
-                                    <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                                      {fight.left} vs. {fight.right}
-                                    </div>
-                                    <div style={{ fontSize: 14 }}>
-                                      Pick: <span style={{ fontWeight: 900 }}>{pick || 'No pick'}</span>
-                                    </div>
-                                    {result && (
-                                      <div
-                                        style={{
-                                          fontSize: 13,
-                                          marginTop: 6,
-                                          color:
-                                            result === 'Draw'
-                                              ? '#fde68a'
-                                              : correct
-                                              ? '#86efac'
-                                              : '#fca5a5',
-                                          fontWeight: 700,
-                                        }}
-                                      >
-                                        {result === 'Draw'
-                                          ? 'Official result: Draw'
-                                          : `${correct ? 'Correct' : 'Wrong'} · Result: ${result}`}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
+                            <PicksReveal entry={entry} fights={fights} results={results} />
                           )}
                         </div>
                       );
@@ -782,7 +928,14 @@ export default function HomePage() {
               </section>
 
               {isAdmin && (
-                <section style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.22)', borderRadius: 26, padding: 18 }}>
+                <section
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))',
+                    border: '1px solid rgba(168,85,247,0.22)',
+                    borderRadius: 26,
+                    padding: 18,
+                  }}
+                >
                   <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Admin results</h2>
                   <p style={{ color: '#cbd5e1', marginTop: 0 }}>
                     After the fights, click the official result for each matchup. Use Clear Result if needed.
@@ -797,9 +950,10 @@ export default function HomePage() {
                             marginBottom: 12,
                             padding: '7px 12px',
                             borderRadius: 999,
-                            background: section.title === 'Main Card'
-                              ? 'linear-gradient(90deg, #f43f5e, #ec4899)'
-                              : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                            background:
+                              section.title === 'Main Card'
+                                ? 'linear-gradient(90deg, #f43f5e, #ec4899)'
+                                : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
                             color: '#fff',
                             fontWeight: 900,
                             fontSize: 12,
