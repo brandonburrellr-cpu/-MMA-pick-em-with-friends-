@@ -5,8 +5,10 @@ export const EVENTS = [
     location: 'Miami, FL',
     date: '2026-04-11T18:00:00',
     fights: [
+      // ===== MAIN CARD =====
       {
         id: 'fight_1',
+        card: 'main',
         red: 'Jiří Procházka',
         blue: 'Carlos Ulberg',
         redEspn: 'https://www.espn.com/mma/fighter/_/id/3156612/jiri-prochazka',
@@ -14,6 +16,7 @@ export const EVENTS = [
       },
       {
         id: 'fight_2',
+        card: 'main',
         red: 'Azamat Murzakanov',
         blue: 'Paulo Costa',
         redEspn: 'https://www.espn.com/mma/fighter/_/id/4698411/azamat-murzakanov',
@@ -21,6 +24,7 @@ export const EVENTS = [
       },
       {
         id: 'fight_3',
+        card: 'main',
         red: 'Curtis Blaydes',
         blue: 'Josh Hokit',
         redEspn: 'https://www.espn.com/mma/fighter/_/id/3045737/curtis-blaydes',
@@ -28,6 +32,7 @@ export const EVENTS = [
       },
       {
         id: 'fight_4',
+        card: 'main',
         red: 'Dominick Reyes',
         blue: 'Johnny Walker',
         redEspn: 'https://www.espn.com/mma/fighter/_/id/3045736/dominick-reyes',
@@ -35,10 +40,45 @@ export const EVENTS = [
       },
       {
         id: 'fight_5',
+        card: 'main',
         red: 'Cub Swanson',
         blue: 'Nate Landwehr',
         redEspn: 'https://www.espn.com/mma/fighter/_/id/2502183/cub-swanson',
         blueEspn: 'https://www.espn.com/mma/fighter/_/id/3151145/nate-landwehr',
+      },
+
+      // ===== PRELIMINARY CARD =====
+      {
+        id: 'fight_6',
+        card: 'prelim',
+        red: 'Michel Pereira',
+        blue: 'Roman Kopylov',
+        redEspn: 'https://www.espn.com/mma/fighter/_/id/3152925/michel-pereira',
+        blueEspn: 'https://www.espn.com/mma/fighter/_/id/3949587/roman-kopylov',
+      },
+      {
+        id: 'fight_7',
+        card: 'prelim',
+        red: 'Angela Hill',
+        blue: 'Amanda Ribas',
+        redEspn: 'https://www.espn.com/mma/fighter/_/id/3022647/angela-hill',
+        blueEspn: 'https://www.espn.com/mma/fighter/_/id/4012106/amanda-ribas',
+      },
+      {
+        id: 'fight_8',
+        card: 'prelim',
+        red: 'Terrance McKinney',
+        blue: 'Nasrat Haqparast',
+        redEspn: 'https://www.espn.com/mma/fighter/_/id/4685370/terrance-mckinney',
+        blueEspn: 'https://www.espn.com/mma/fighter/_/id/3144318/nasrat-haqparast',
+      },
+      {
+        id: 'fight_9',
+        card: 'prelim',
+        red: 'Karine Silva',
+        blue: 'Casey O’Neill',
+        redEspn: 'https://www.espn.com/mma/fighter/_/id/4698574/karine-silva',
+        blueEspn: 'https://www.espn.com/mma/fighter/_/id/4696735/casey-oneill',
       },
     ],
   },
