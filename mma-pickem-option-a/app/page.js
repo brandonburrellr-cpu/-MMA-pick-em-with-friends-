@@ -46,6 +46,7 @@ function normalizeFights(event) {
     right: fight?.blue || '',
     leftEspn: fight?.redEspn || '#',
     rightEspn: fight?.blueEspn || '#',
+    card: fight?.card || 'main',
   }));
 }
 
@@ -196,6 +197,103 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
   );
 }
 
+function FightSection({
+  title,
+  fights,
+  picks,
+  results,
+  locked,
+  chooseWinner,
+}) {
+  if (!fights.length) return null;
+
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div
+        style={{
+          display: 'inline-block',
+          marginBottom: 14,
+          padding: '7px 12px',
+          borderRadius: 999,
+          background: title === 'Main Card'
+            ? 'linear-gradient(90deg, #f43f5e, #ec4899)'
+            : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+          color: '#fff',
+          fontWeight: 900,
+          fontSize: 12,
+          letterSpacing: 0.4,
+        }}
+      >
+        {title}
+      </div>
+
+      {fights.map((fight, index) => {
+        const selectedWinner = picks[fight.key];
+        const officialWinner = results[fight.key];
+
+        return (
+          <div
+            key={fight.key}
+            style={{
+              background: 'linear-gradient(135deg, rgba(15,23,42,0.86), rgba(17,24,39,0.86))',
+              border: '1px solid rgba(99,102,241,0.15)',
+              borderRadius: 18,
+              padding: 14,
+              marginBottom: 14,
+            }}
+          >
+            <div style={{ color: '#c4b5fd', marginBottom: 6, fontWeight: 700 }}>
+              {title} Fight {index + 1}
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 8 }}>
+              {fight.left} vs. {fight.right}
+            </div>
+
+            {officialWinner && (
+              <div
+                style={{
+                  marginBottom: 12,
+                  background:
+                    officialWinner === 'Draw'
+                      ? 'rgba(245, 158, 11, 0.14)'
+                      : 'rgba(34,197,94,0.14)',
+                  border:
+                    officialWinner === 'Draw'
+                      ? '1px solid rgba(251,191,36,0.3)'
+                      : '1px solid rgba(74,222,128,0.3)',
+                  color: officialWinner === 'Draw' ? '#fde68a' : '#bbf7d0',
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  fontWeight: 800,
+                }}
+              >
+                Official result: {officialWinner}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <FighterCard
+                name={fight.left}
+                espnUrl={fight.leftEspn}
+                active={selectedWinner === fight.left}
+                disabled={locked}
+                onPick={() => chooseWinner(fight.key, fight.left)}
+              />
+              <FighterCard
+                name={fight.right}
+                espnUrl={fight.rightEspn}
+                active={selectedWinner === fight.right}
+                disabled={locked}
+                onPick={() => chooseWinner(fight.key, fight.right)}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function HomePage() {
   const supabase = getSupabase();
 
@@ -228,6 +326,9 @@ export default function HomePage() {
   }, [selectedEventId]);
 
   const fights = normalizeFights(selectedEvent);
+  const mainCardFights = fights.filter((fight) => fight.card === 'main');
+  const prelimFights = fights.filter((fight) => fight.card !== 'main');
+
   const lockTime = getPacificLockTime(selectedEvent?.date);
   const locked = lockTime ? nowMs >= lockTime.getTime() : false;
 
@@ -409,18 +510,18 @@ export default function HomePage() {
                 Pick the winners. Beat your friends.
               </h1>
               <p style={{ color: '#dbeafe', margin: 0, maxWidth: 700, fontSize: 16 }}>
-                Admin mode now supports Draw and Clear Result if you click something by mistake.
+                Main card and prelims are now separated visually, with admin controls for Draw and Clear Result.
               </p>
             </section>
 
             <section style={{ background: 'linear-gradient(135deg, rgba(30,41,59,0.72), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 26, padding: 24 }}>
               <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>How it works</div>
               <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16, fontWeight: 900 }}>
-                Fix mistakes easily
+                Main + prelims
               </h2>
 
               <div style={{ background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.3)', color: '#fdba74', padding: 14, borderRadius: 14, marginBottom: 12, fontWeight: 700 }}>
-                In admin mode you can choose Fighter 1, Fighter 2, Draw, or Clear Result.
+                The fight card now shows a Main Card section first and a Prelims section below it.
               </div>
 
               {message && (
@@ -497,7 +598,7 @@ export default function HomePage() {
                   border: locked ? '1px solid rgba(251,191,36,0.4)' : '1px solid rgba(74,222,128,0.35)',
                   borderRadius: 14,
                   padding: 13,
-                  marginBottom: 14,
+                  marginBottom: 18,
                   fontWeight: 800,
                 }}
               >
@@ -517,75 +618,29 @@ export default function HomePage() {
                   border: '1px solid rgba(99,102,241,0.25)',
                   borderRadius: 12,
                   padding: '13px 14px',
-                  marginBottom: 16,
+                  marginBottom: 18,
                   outline: 'none',
                   fontSize: 15,
                 }}
               />
 
-              {fights.map((fight, index) => {
-                const selectedWinner = picks[fight.key];
-                const officialWinner = results[fight.key];
+              <FightSection
+                title="Main Card"
+                fights={mainCardFights}
+                picks={picks}
+                results={results}
+                locked={locked}
+                chooseWinner={chooseWinner}
+              />
 
-                return (
-                  <div
-                    key={fight.key}
-                    style={{
-                      background: 'linear-gradient(135deg, rgba(15,23,42,0.86), rgba(17,24,39,0.86))',
-                      border: '1px solid rgba(99,102,241,0.15)',
-                      borderRadius: 18,
-                      padding: 14,
-                      marginBottom: 14,
-                    }}
-                  >
-                    <div style={{ color: '#c4b5fd', marginBottom: 6, fontWeight: 700 }}>
-                      Fight {index + 1}
-                    </div>
-                    <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 8 }}>
-                      {fight.left} vs. {fight.right}
-                    </div>
-
-                    {officialWinner && (
-                      <div
-                        style={{
-                          marginBottom: 12,
-                          background:
-                            officialWinner === 'Draw'
-                              ? 'rgba(245, 158, 11, 0.14)'
-                              : 'rgba(34,197,94,0.14)',
-                          border:
-                            officialWinner === 'Draw'
-                              ? '1px solid rgba(251,191,36,0.3)'
-                              : '1px solid rgba(74,222,128,0.3)',
-                          color: officialWinner === 'Draw' ? '#fde68a' : '#bbf7d0',
-                          padding: '10px 12px',
-                          borderRadius: 12,
-                          fontWeight: 800,
-                        }}
-                      >
-                        Official result: {officialWinner}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <FighterCard
-                        name={fight.left}
-                        espnUrl={fight.leftEspn}
-                        active={selectedWinner === fight.left}
-                        disabled={locked}
-                        onPick={() => chooseWinner(fight.key, fight.left)}
-                      />
-                      <FighterCard
-                        name={fight.right}
-                        espnUrl={fight.rightEspn}
-                        active={selectedWinner === fight.right}
-                        disabled={locked}
-                        onPick={() => chooseWinner(fight.key, fight.right)}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+              <FightSection
+                title="Prelims"
+                fights={prelimFights}
+                picks={picks}
+                results={results}
+                locked={locked}
+                chooseWinner={chooseWinner}
+              />
 
               <button
                 onClick={submitPicks}
@@ -692,7 +747,7 @@ export default function HomePage() {
                                     }}
                                   >
                                     <div style={{ color: '#c4b5fd', fontSize: 12, marginBottom: 4 }}>
-                                      Fight {fightIndex + 1}
+                                      {fight.card === 'main' ? 'Main Card' : 'Prelim'} · Fight {fightIndex + 1}
                                     </div>
                                     <div style={{ fontWeight: 800, marginBottom: 6 }}>
                                       {fight.left} vs. {fight.right}
@@ -735,74 +790,98 @@ export default function HomePage() {
                 <section style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.76), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.22)', borderRadius: 26, padding: 18 }}>
                   <h2 style={{ marginTop: 0, fontSize: 22, fontWeight: 900 }}>Admin results</h2>
                   <p style={{ color: '#cbd5e1', marginTop: 0 }}>
-                    After the fights, click the official result for each matchup. Use Clear Result if you clicked one by mistake.
+                    After the fights, click the official result for each matchup. Use Clear Result if needed.
                   </p>
 
-                  {fights.map((fight) => {
-                    const selectedResult = results[fight.key];
-
-                    return (
-                      <div
-                        key={fight.key}
-                        style={{
-                          background: 'rgba(15,23,42,0.78)',
-                          border: '1px solid rgba(99,102,241,0.14)',
-                          borderRadius: 16,
-                          padding: 14,
-                          marginBottom: 12,
-                        }}
-                      >
-                        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>
-                          {fight.left} vs. {fight.right}
+                  {[{ title: 'Main Card', fights: mainCardFights }, { title: 'Prelims', fights: prelimFights }].map((section) =>
+                    section.fights.length ? (
+                      <div key={section.title} style={{ marginBottom: 18 }}>
+                        <div
+                          style={{
+                            display: 'inline-block',
+                            marginBottom: 12,
+                            padding: '7px 12px',
+                            borderRadius: 999,
+                            background: section.title === 'Main Card'
+                              ? 'linear-gradient(90deg, #f43f5e, #ec4899)'
+                              : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                            color: '#fff',
+                            fontWeight: 900,
+                            fontSize: 12,
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          {section.title}
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
-                          {[fight.left, fight.right, 'Draw'].map((resultOption, resultIndex) => (
-                            <button
-                              key={`${fight.key}-result-${resultIndex}`}
-                              onClick={() => saveResult(fight.key, resultOption)}
+                        {section.fights.map((fight) => {
+                          const selectedResult = results[fight.key];
+
+                          return (
+                            <div
+                              key={fight.key}
                               style={{
-                                background:
-                                  selectedResult === resultOption
-                                    ? resultOption === 'Draw'
-                                      ? 'linear-gradient(90deg, #f59e0b, #eab308)'
-                                      : 'linear-gradient(90deg, #f43f5e, #ec4899)'
-                                    : 'rgba(30,41,59,0.8)',
-                                color: '#fff',
-                                border:
-                                  selectedResult === resultOption
-                                    ? resultOption === 'Draw'
-                                      ? '1px solid rgba(251,191,36,0.7)'
-                                      : '1px solid rgba(244,114,182,0.7)'
-                                    : '1px solid rgba(99,102,241,0.18)',
-                                borderRadius: 12,
-                                padding: '12px 10px',
-                                fontWeight: 800,
-                                cursor: 'pointer',
+                                background: 'rgba(15,23,42,0.78)',
+                                border: '1px solid rgba(99,102,241,0.14)',
+                                borderRadius: 16,
+                                padding: 14,
+                                marginBottom: 12,
                               }}
                             >
-                              {resultOption}
-                            </button>
-                          ))}
+                              <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>
+                                {fight.left} vs. {fight.right}
+                              </div>
 
-                          <button
-                            onClick={() => clearResult(fight.key)}
-                            style={{
-                              background: 'rgba(71,85,105,0.9)',
-                              color: '#fff',
-                              border: '1px solid rgba(148,163,184,0.35)',
-                              borderRadius: 12,
-                              padding: '12px 10px',
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Clear Result
-                          </button>
-                        </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+                                {[fight.left, fight.right, 'Draw'].map((resultOption, resultIndex) => (
+                                  <button
+                                    key={`${fight.key}-result-${resultIndex}`}
+                                    onClick={() => saveResult(fight.key, resultOption)}
+                                    style={{
+                                      background:
+                                        selectedResult === resultOption
+                                          ? resultOption === 'Draw'
+                                            ? 'linear-gradient(90deg, #f59e0b, #eab308)'
+                                            : 'linear-gradient(90deg, #f43f5e, #ec4899)'
+                                          : 'rgba(30,41,59,0.8)',
+                                      color: '#fff',
+                                      border:
+                                        selectedResult === resultOption
+                                          ? resultOption === 'Draw'
+                                            ? '1px solid rgba(251,191,36,0.7)'
+                                            : '1px solid rgba(244,114,182,0.7)'
+                                          : '1px solid rgba(99,102,241,0.18)',
+                                      borderRadius: 12,
+                                      padding: '12px 10px',
+                                      fontWeight: 800,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {resultOption}
+                                  </button>
+                                ))}
+
+                                <button
+                                  onClick={() => clearResult(fight.key)}
+                                  style={{
+                                    background: 'rgba(71,85,105,0.9)',
+                                    color: '#fff',
+                                    border: '1px solid rgba(148,163,184,0.35)',
+                                    borderRadius: 12,
+                                    padding: '12px 10px',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Clear Result
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    ) : null
+                  )}
                 </section>
               )}
             </div>
