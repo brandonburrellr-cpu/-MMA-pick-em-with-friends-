@@ -197,14 +197,7 @@ function FighterCard({ name, espnUrl, active, disabled, onPick }) {
   );
 }
 
-function FightSection({
-  title,
-  fights,
-  picks,
-  results,
-  locked,
-  chooseWinner,
-}) {
+function FightSection({ title, fights, picks, results, locked, chooseWinner }) {
   if (!fights.length) return null;
 
   return (
@@ -215,9 +208,10 @@ function FightSection({
           marginBottom: 14,
           padding: '7px 12px',
           borderRadius: 999,
-          background: title === 'Main Card'
-            ? 'linear-gradient(90deg, #f43f5e, #ec4899)'
-            : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+          background:
+            title === 'Main Card'
+              ? 'linear-gradient(90deg, #f43f5e, #ec4899)'
+              : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
           color: '#fff',
           fontWeight: 900,
           fontSize: 12,
@@ -426,6 +420,7 @@ export default function HomePage() {
     }
 
     setMessage('Picks saved.');
+    setExpandedPlayer(`${selectedEventId}-${cleanName}`);
     loadData();
   }
 
@@ -510,18 +505,18 @@ export default function HomePage() {
                 Pick the winners. Beat your friends.
               </h1>
               <p style={{ color: '#dbeafe', margin: 0, maxWidth: 700, fontSize: 16 }}>
-                Main card and prelims are now separated visually, with admin controls for Draw and Clear Result.
+                After the card locks at 3 PM Pacific, anybody can click any saved name on the leaderboard, including their own, and see those picks.
               </p>
             </section>
 
             <section style={{ background: 'linear-gradient(135deg, rgba(30,41,59,0.72), rgba(17,24,39,0.74))', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 26, padding: 24 }}>
               <div style={{ fontSize: 14, color: '#c4b5fd', marginBottom: 4 }}>How it works</div>
               <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16, fontWeight: 900 }}>
-                Main + prelims
+                Click any name after lock
               </h2>
 
               <div style={{ background: 'rgba(251,146,60,0.14)', border: '1px solid rgba(251,146,60,0.3)', color: '#fdba74', padding: 14, borderRadius: 14, marginBottom: 12, fontWeight: 700 }}>
-                The fight card now shows a Main Card section first and a Prelims section below it.
+                Once the event locks, every player name becomes clickable, including your own name, so you can see what that person picked.
               </div>
 
               {message && (
@@ -603,7 +598,7 @@ export default function HomePage() {
                 }}
               >
                 {locked
-                  ? 'Picks are locked. Results and scores update automatically when winners are saved.'
+                  ? 'Picks are locked. Click any leaderboard name to see what that person picked.'
                   : 'Picks are open for this card.'}
               </div>
 
@@ -713,7 +708,7 @@ export default function HomePage() {
 
                           {locked ? (
                             <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 8 }}>
-                              Click the name to {isOpen ? 'hide' : 'see'} what they picked
+                              Click the name to {isOpen ? 'hide' : 'see'} their picks
                             </div>
                           ) : (
                             <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 8 }}>
